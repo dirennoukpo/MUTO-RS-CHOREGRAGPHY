@@ -1,0 +1,9 @@
+.vscode/
+# ROS 2 / colcon generated artifacts
+/build/
+/install/
+/log/
+
+# Python cache files that can be generated during builds or tooling
+__pycache__/
+*.pyc
