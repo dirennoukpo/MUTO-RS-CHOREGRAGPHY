@@ -1,0 +1,9 @@
+<root main_tree_to_execute="FollowLeader">
+  <BehaviorTree ID="FollowLeader">
+    <Sequence>
+      <GetLeaderPose/>
+      <ComputeOffsetGoal/>
+      <NavigateToPose/>
+    </Sequence>
+  </BehaviorTree>
+</root>
