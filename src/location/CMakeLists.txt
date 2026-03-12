@@ -12,6 +12,19 @@ find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
+add_library(compute_offset_goal SHARED src/compute_offset_goal.cpp)
+target_include_directories(compute_offset_goal PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(compute_offset_goal PUBLIC cxx_std_17)
+target_compile_definitions(compute_offset_goal PRIVATE BT_PLUGIN_EXPORT)
+set_target_properties(compute_offset_goal PROPERTIES POSITION_INDEPENDENT_CODE ON)
+ament_target_dependencies(compute_offset_goal
+  rclcpp
+  behaviortree_cpp_v3
+  std_msgs
+  geometry_msgs)
+
 add_library(get_leader_pose SHARED src/get_leader_pose.cpp)
 target_include_directories(get_leader_pose PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -25,7 +38,7 @@ ament_target_dependencies(get_leader_pose
   std_msgs
   geometry_msgs)
 
-install(TARGETS get_leader_pose
+install(TARGETS get_leader_pose compute_offset_goal
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

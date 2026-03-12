@@ -5,10 +5,12 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 10:27:25 AM 2026 dirennoukpo
-** Last update Fri Mar 12 11:13:12 AM 2026 dirennoukpo
+** Last update Fri Mar 12 11:46:27 AM 2026 dirennoukpo
 */
 
 #pragma once
+
+#include <string>
 
 #include "rclcpp/rclcpp.hpp"
 #include "behaviortree_cpp_v3/action_node.h"
@@ -22,7 +24,11 @@ class CheckLeaderPose : public BT::SyncActionNode
         static BT::PortsList providedPorts();
         BT::NodeStatus tick() override;
     private:
+        void update_subscription(const std::string &robot_id);
+
         rclcpp::Node::SharedPtr _node;
         rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr _sub;
+        std::string _robot_id;
+        bool _has_pose{false};
         geometry_msgs::msg::Twist _pose;
 };
