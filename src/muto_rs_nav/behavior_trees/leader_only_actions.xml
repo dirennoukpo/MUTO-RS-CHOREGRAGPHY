@@ -10,33 +10,17 @@
       Blackboard variables:
         goal              : target pose (PoseStamped) provided by Nav2 action
     -->
-    <RecoveryNode number_of_retries="6" name="LeaderNavigateRecovery">
-
-      <ReactiveSequence name="LeaderControl">
-        <RateController hz="1.0">
-          <ComputePathToPose
-            goal="{goal}"
-            path="{path}"
-            planner_id="GridBased"/>
-        </RateController>
-
-        <FollowPath
+    <ReactiveSequence name="LeaderControl">
+      <RateController hz="1.0">
+        <ComputePathToPose
+          goal="{goal}"
           path="{path}"
-          controller_id="FollowPath"/>
-      </ReactiveSequence>
+          planner_id="GridBased"/>
+      </RateController>
 
-      <Sequence name="RecoveryActions">
-        <Wait wait_duration="2"/>
-        <ClearEntireCostmap
-          name="ClearGlobalCostmap"
-          server_name="global_costmap/clear_entirely_global_costmap"
-          server_timeout="10"/>
-        <ClearEntireCostmap
-          name="ClearLocalCostmap"
-          server_name="local_costmap/clear_entirely_local_costmap"
-          server_timeout="10"/>
-      </Sequence>
-
-    </RecoveryNode>
+      <FollowPath
+        path="{path}"
+        controller_id="FollowPath"/>
+    </ReactiveSequence>
   </BehaviorTree>
 </root>
