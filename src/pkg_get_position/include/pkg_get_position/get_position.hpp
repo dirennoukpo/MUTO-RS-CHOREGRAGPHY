@@ -5,7 +5,7 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 10:27:25 AM 2026 dirennoukpo
-** Last update Sat Mar 13 2:46:57 PM 2026 dirennoukpo
+** Last update Sat Mar 13 3:04:29 PM 2026 dirennoukpo
 */
 
 #pragma once
@@ -17,10 +17,10 @@
 #include "behaviortree_cpp_v3/bt_factory.h"
 #include "geometry_msgs/msg/twist.hpp"
 
-class CheckLeaderPose : public BT::SyncActionNode
+class GetPosition : public BT::SyncActionNode
 {
     public:
-        CheckLeaderPose(const std::string &name, const BT::NodeConfiguration &config);
+        GetPosition(const std::string &name, const BT::NodeConfiguration &config);
         static BT::PortsList providedPorts();
         BT::NodeStatus tick() override;
     private:
