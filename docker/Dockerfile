@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-rosdep \
     python3-vcstool \
     ros-humble-behaviortree-cpp-v3 \
+    ros-humble-nav2-bringup \
+    ros-humble-navigation2 \
     ros-humble-rmw-fastrtps-cpp \
     unzip \
     vim \
