@@ -5,8 +5,10 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def _find_repo_root() -> Path:
@@ -72,6 +74,21 @@ def generate_launch_description():
         default_value=runtime_params,
         description="Path to Nav2 params yaml",
     )
+    fake_odom_tf_arg = DeclareLaunchArgument(
+        "use_fake_odom_tf",
+        default_value="True",
+        description=(
+            "Publish a fallback static transform odom->base_link when no odom TF is available"
+        ),
+    )
+
+    fake_odom_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="fake_odom_tf",
+        arguments=["0", "0", "0", "0", "0", "0", "odom", "base_link"],
+        condition=IfCondition(LaunchConfiguration("use_fake_odom_tf")),
+    )
 
     bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -88,5 +105,7 @@ def generate_launch_description():
     return LaunchDescription([
         map_arg,
         params_arg,
+        fake_odom_tf_arg,
+        fake_odom_tf,
         bringup,
     ])
