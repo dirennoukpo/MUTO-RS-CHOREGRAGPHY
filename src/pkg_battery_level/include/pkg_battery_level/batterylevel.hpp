@@ -1,11 +1,11 @@
 /*
-** batterylevel.hpp for checkbatterylevel [WSL: Ubuntu-22.04] in /home/edwin/MUTO-RS-CHOREGRAGPHY/src/checkbatterylevel/include/checkbatterylevel
+** batterylevel.hpp for pkg_battery_level [WSL: Ubuntu-22.04] in /home/edwin/MUTO-RS-CHOREGRAGPHY/src/pkg_battery_level/include/pkg_battery_level
 **
 ** Made by dirennoukpo
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 8:11:48 AM 2026 dirennoukpo
-** Last update Fri Mar 12 11:52:13 AM 2026 dirennoukpo
+** Last update Sat Mar 13 2:53:45 PM 2026 dirennoukpo
 */
 
 #pragma once

@@ -1,14 +1,14 @@
 /*
-** batterylevel.cpp for checkbatterylevel [WSL: Ubuntu-22.04] in /home/edwin/MUTO-RS-CHOREGRAGPHY/src/checkbatterylevel/src
+** batterylevel.cpp for pkg_battery_level [WSL: Ubuntu-22.04] in /home/edwin/MUTO-RS-CHOREGRAGPHY/src/pkg_battery_level/src
 **
 ** Made by dirennoukpo
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 8:09:51 AM 2026 dirennoukpo
-** Last update Sat Mar 13 2:28:16 PM 2026 dirennoukpo
+** Last update Sat Mar 13 2:53:52 PM 2026 dirennoukpo
 */
 
-#include "../include/checkbatterylevel/batterylevel.hpp"
+#include "../include/pkg_battery_level/batterylevel.hpp"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
 CheckBatteryLevel::CheckBatteryLevel(const std::string &name, const BT::NodeConfiguration &config)
