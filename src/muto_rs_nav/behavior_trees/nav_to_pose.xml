@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="build_target_pose">
+      <CheckBatteryLevel robot_id="{robot_id}" min_battery_level="{min_battery_level}" battery_level="{battery_level}"/>
+      <GetPosition robot_id="{leader_robot_id}" position="{ref_position}"/>
+      <SetNewPosition ref_position="{ref_position}" offset_x="{offset_x}" offset_y="{offset_y}" offset_z="{offset_z}" position="{target_position}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

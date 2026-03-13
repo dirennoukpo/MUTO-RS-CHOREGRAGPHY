@@ -5,7 +5,7 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Fri Mar 13 3:28:12 PM 2026 dirennoukpo
-** Last update Sat Mar 13 3:42:10 PM 2026 dirennoukpo
+** Last update Sat Mar 13 3:43:27 PM 2026 dirennoukpo
 */
 
 #include "../include/pkg_new_position/new_position.hpp"
@@ -42,7 +42,6 @@ BT::NodeStatus SetNewPosition::tick()
     new_pose.linear.x += offset_x ? offset_x.value() : 3.0;
     new_pose.linear.y += offset_y ? offset_y.value() : 3.0;
     new_pose.linear.z += offset_z ? offset_z.value() : 3.0;
-    // angular (orientation) is left unchanged
 
     setOutput("position", new_pose);
     return BT::NodeStatus::SUCCESS;
