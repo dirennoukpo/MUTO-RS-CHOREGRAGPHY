@@ -11,12 +11,21 @@ services:
     image: ros-humble-dev:latest
     container_name: ros-humble-dev
     hostname: ros-humble-dev
+    network_mode: host
+    ipc: host
     tty: true
     stdin_open: true
     working_dir: /workspace
     volumes:
       - ./:/workspace
+      - ros-humble-history:/commandhistory
     environment:
       - ROS_DISTRO=humble
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-33}
+      - ROS_LOCALHOST_ONLY=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     command: bash
+
+volumes:
+  ros-humble-history:
