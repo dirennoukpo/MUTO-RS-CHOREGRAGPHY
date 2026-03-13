@@ -1,0 +1,19 @@
+services:
+  ros-humble-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+    image: ros-humble-dev:latest
+    container_name: ros-humble-dev
+    tty: true
+    stdin_open: true
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      - ROS_DISTRO=humble
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    command: bash
