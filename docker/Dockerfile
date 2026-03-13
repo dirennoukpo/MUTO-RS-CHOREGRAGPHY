@@ -2,25 +2,36 @@ FROM ros:humble-ros-base-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash-completion \
-    build-essential \
-    curl \
-    git \
-    iputils-ping \
-    nano \
-    python3-colcon-common-extensions \
-    python3-pip \
-    python3-rosdep \
-    python3-vcstool \
-    ros-humble-behaviortree-cpp-v3 \
-    ros-humble-nav2-bringup \
-    ros-humble-navigation2 \
-    ros-humble-rviz2 \
-    ros-humble-rmw-fastrtps-cpp \
-    unzip \
-    vim \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
+    for attempt in 1 2 3 4 5; do \
+        apt-get update -o Acquire::Retries=3 && break; \
+        if [ "$attempt" -eq 5 ]; then \
+            exit 1; \
+        fi; \
+        sleep 15; \
+        rm -rf /var/lib/apt/lists/*; \
+    done; \
+    apt-get install -y --no-install-recommends \
+        bash-completion \
+        build-essential \
+        curl \
+        git \
+        iputils-ping \
+        nano \
+        python3-colcon-common-extensions \
+        python3-pip \
+        python3-rosdep \
+        python3-vcstool \
+        ros-humble-behaviortree-cpp-v3 \
+        ros-humble-nav2-bringup \
+        ros-humble-navigation2 \
+        ros-humble-rviz2 \
+        ros-humble-rmw-fastrtps-cpp \
+        unzip \
+        vim; \
+    rm -rf /var/lib/apt/lists/*
 
 # Optional non-root user for easier file permissions on host.
 ARG USERNAME=ros
