@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <!--
+      Leader-only behavior tree.
+
+      This tree runs navigation actions only for the current robot (leader),
+      without leader-follower formation nodes (GetPosition / SetNewPosition).
+
+      Blackboard variables:
+        robot_id          : this robot ID string
+        min_battery_level : battery threshold (float)
+        goal              : target pose (PoseStamped) provided by Nav2 action
+    -->
+    <RecoveryNode number_of_retries="6" name="LeaderNavigateRecovery">
+
+      <ReactiveSequence name="LeaderControl">
+        <CheckBatteryLevel
+          robot_id="{robot_id}"
+          min_battery_level="{min_battery_level}"
+          battery_level="{battery_level}"/>
+
+        <RateController hz="1.0">
+          <ComputePathToPose
+            goal="{goal}"
+            path="{path}"
+            planner_id="GridBased"/>
+        </RateController>
+
+        <FollowPath
+          path="{path}"
+          controller_id="FollowPath"/>
+      </ReactiveSequence>
+
+      <Sequence name="RecoveryActions">
+        <Wait wait_duration="2"/>
+        <ClearEntireCostmap
+          name="ClearGlobalCostmap"
+          server_name="global_costmap/clear_entirely_global_costmap"
+          server_timeout="10"/>
+        <ClearEntireCostmap
+          name="ClearLocalCostmap"
+          server_name="local_costmap/clear_entirely_local_costmap"
+          server_timeout="10"/>
+      </Sequence>
+
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

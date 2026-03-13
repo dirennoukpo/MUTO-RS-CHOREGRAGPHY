@@ -59,6 +59,26 @@ source install/setup.bash
 ros2 launch /workspace/src/muto_rs_nav/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=False
 ```
 
+## 5.1) Lancer un BT separe pour le leader uniquement
+
+Ce mode charge un BT dedie leader (sans logique follower `GetPosition` / `SetNewPosition`).
+Le choix du BT se fait directement via l'argument de launch `bt_xml`.
+
+```bash
+source /opt/ros/humble/setup.bash
+cd /workspace
+source install/setup.bash
+ros2 launch /workspace/src/muto_rs_nav/launch/nav2_bringup.launch.py \
+	bt_xml:=/workspace/src/muto_rs_nav/behavior_trees/leader_only_actions.xml \
+	use_fake_map_tf:=True use_fake_odom_tf:=True
+```
+
+Pour revenir au BT par defaut:
+
+```bash
+ros2 launch /workspace/src/muto_rs_nav/launch/nav2_bringup.launch.py
+```
+
 ## 6) Tests immediats (autre terminal dans le container)
 
 Preparation du terminal de test:
