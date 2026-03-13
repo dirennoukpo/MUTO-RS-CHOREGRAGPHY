@@ -22,6 +22,13 @@ export HOST_GID="$(id -g)"
 export HOST_USER="$(id -un)"
 export HOST_GROUP="$(id -gn)"
 
+# X11 forwarding for GUI apps (rviz2, rqt) launched in the container.
+export DISPLAY="${DISPLAY:-:0}"
+export QT_X11_NO_MITSHM=1
+if command -v xhost >/dev/null 2>&1; then
+	xhost +local:docker >/dev/null 2>&1 || true
+fi
+
 if ! docker info >/dev/null 2>&1; then
 	echo "[ERROR] Impossible d'acceder au daemon Docker depuis ce terminal."
 

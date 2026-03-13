@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-behaviortree-cpp-v3 \
     ros-humble-nav2-bringup \
     ros-humble-navigation2 \
+    ros-humble-rviz2 \
     ros-humble-rmw-fastrtps-cpp \
     unzip \
     vim \

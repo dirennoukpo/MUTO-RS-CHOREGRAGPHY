@@ -26,6 +26,8 @@ chmod +x docker/run_docker.sh
 ./docker/run_docker.sh
 ```
 
+Apres une mise a jour du `Dockerfile` (ex: ajout de `rviz2`), relance ce script pour rebuilder l'image.
+
 ## 3) Build du workspace (dans le container)
 
 ```bash
@@ -106,6 +108,16 @@ Publier une position de reference robot 1 (Twist):
 
 ```bash
 ros2 topic pub /robot1/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 1.0, y: 2.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.3}}" -r 2
+```
+
+Visualisation avec RViz2 (dans le container):
+
+```bash
+source /opt/ros/humble/setup.bash
+cd /workspace
+source install/setup.bash
+which rviz2
+rviz2
 ```
 
 ## 7) Depannage rapide des erreurs connues
