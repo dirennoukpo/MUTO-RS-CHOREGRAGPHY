@@ -10,8 +10,18 @@ export HOST_GROUP="$(id -gn)"
 
 if ! docker info >/dev/null 2>&1; then
 	echo "[ERROR] Impossible d'acceder au daemon Docker depuis ce terminal."
-	echo "[INFO] Cause frequente: terminal ouvert avant l'ajout au groupe 'docker'."
-	echo "[FIX] Execute: newgrp docker"
+
+	if ! id -nG "${USER}" | grep -qw docker; then
+		echo "[INFO] L'utilisateur '${USER}' n'est pas dans le groupe docker."
+		echo "[FIX] Tentative d'ajout automatique via sudo usermod -aG docker ${USER}"
+		sudo usermod -aG docker "${USER}"
+		echo "[INFO] Ajout effectue. Deconnecte-toi puis reconnecte-toi (ou redemarre la VM)."
+		echo "[INFO] Ensuite relance: ./docker/run_docker.sh"
+		exit 1
+	fi
+
+	echo "[INFO] Tu es deja dans le groupe docker, mais la session n'a pas pris en compte le changement."
+	echo "[FIX] Deconnecte-toi puis reconnecte-toi (ou redemarre la VM)."
 	echo "[FIX] Puis relance: ./docker/run_docker.sh"
 	exit 1
 fi
