@@ -4,10 +4,13 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       args:
+        USERNAME: ${HOST_USER:-ros}
+        GROUPNAME: ${HOST_GROUP:-ros}
         USER_UID: ${HOST_UID:-1000}
         USER_GID: ${HOST_GID:-1000}
     image: ros-humble-dev:latest
     container_name: ros-humble-dev
+    hostname: ros-humble-dev
     tty: true
     stdin_open: true
     working_dir: /workspace
