@@ -5,7 +5,7 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 10:27:25 AM 2026 dirennoukpo
-** Last update Sat Mar 13 3:04:29 PM 2026 dirennoukpo
+** Last update Sat Mar 13 10:23:49 PM 2026 dirennoukpo
 */
 
 #pragma once
@@ -15,7 +15,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "behaviortree_cpp_v3/action_node.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
-#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 
 class GetPosition : public BT::SyncActionNode
 {
@@ -27,8 +27,8 @@ class GetPosition : public BT::SyncActionNode
         void update_subscription(const std::string &robot_id);
 
         rclcpp::Node::SharedPtr _node;
-        rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr _sub;
+        rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _sub;
         std::string _robot_id;
         bool _has_pose{false};
-        geometry_msgs::msg::Twist _pose;
+        geometry_msgs::msg::PoseStamped _pose;
 };

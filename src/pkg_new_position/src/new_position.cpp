@@ -5,7 +5,7 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Fri Mar 13 3:28:12 PM 2026 dirennoukpo
-** Last update Sat Mar 13 3:43:27 PM 2026 dirennoukpo
+** Last update Sat Mar 13 10:24:32 PM 2026 dirennoukpo
 */
 
 #include "../include/pkg_new_position/new_position.hpp"
@@ -19,17 +19,17 @@ BT::PortsList SetNewPosition::providedPorts()
 {
     return
     {
-        BT::InputPort<geometry_msgs::msg::Twist>("ref_position"),
+           BT::InputPort<geometry_msgs::msg::PoseStamped>("ref_position"),
         BT::InputPort<double>("offset_x", 3.0, "Offset to add on X axis"),
         BT::InputPort<double>("offset_y", 3.0, "Offset to add on Y axis"),
-        BT::InputPort<double>("offset_z", 3.0, "Offset to add on Z axis"),
-        BT::OutputPort<geometry_msgs::msg::Twist>("position")
+           BT::InputPort<double>("offset_z", 0.0, "Offset to add on Z axis"),
+           BT::OutputPort<geometry_msgs::msg::PoseStamped>("position")
     };
 }
 
 BT::NodeStatus SetNewPosition::tick()
 {
-    auto ref = getInput<geometry_msgs::msg::Twist>("ref_position");
+    auto ref = getInput<geometry_msgs::msg::PoseStamped>("ref_position");
     if (!ref) {
         throw BT::RuntimeError("Missing InputPort [ref_position]: ", ref.error());
     }
@@ -38,10 +38,11 @@ BT::NodeStatus SetNewPosition::tick()
     auto offset_y = getInput<double>("offset_y");
     auto offset_z = getInput<double>("offset_z");
 
-    geometry_msgs::msg::Twist new_pose = ref.value();
-    new_pose.linear.x += offset_x ? offset_x.value() : 3.0;
-    new_pose.linear.y += offset_y ? offset_y.value() : 3.0;
-    new_pose.linear.z += offset_z ? offset_z.value() : 3.0;
+    geometry_msgs::msg::PoseStamped new_pose = ref.value();
+    new_pose.header.frame_id = "map";
+    new_pose.pose.position.x += offset_x ? offset_x.value() : 3.0;
+    new_pose.pose.position.y += offset_y ? offset_y.value() : 3.0;
+    new_pose.pose.position.z += offset_z ? offset_z.value() : 0.0;
 
     setOutput("position", new_pose);
     return BT::NodeStatus::SUCCESS;

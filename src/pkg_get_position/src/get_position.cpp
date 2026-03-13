@@ -5,7 +5,7 @@
 ** Login   <diren.noukpo@epitech.eu>
 **
 ** Started on  Thu Mar 12 10:27:33 AM 2026 dirennoukpo
-** Last update Sat Mar 13 3:04:19 PM 2026 dirennoukpo
+** Last update Sat Mar 13 10:23:59 PM 2026 dirennoukpo
 */
 
 #include "../include/pkg_get_position/get_position.hpp"
@@ -24,11 +24,11 @@ void GetPosition::update_subscription(const std::string &robot_id)
 
     _robot_id = robot_id;
     _has_pose = false;
-    _sub = _node->create_subscription<geometry_msgs::msg::Twist>
+    _sub = _node->create_subscription<geometry_msgs::msg::PoseStamped>
     (
-        "/robot" + robot_id + "/cmd_vel",
+        "/robot" + robot_id + "/pose",
         10,
-        [this] (const geometry_msgs::msg::Twist::SharedPtr pose)
+        [this] (const geometry_msgs::msg::PoseStamped::SharedPtr pose)
         {
             _pose = *pose;
             _has_pose = true;
@@ -41,7 +41,7 @@ BT::PortsList GetPosition::providedPorts()
     return
     {
         BT::InputPort<std::string>("robot_id"),
-        BT::OutputPort<geometry_msgs::msg::Twist>("position")
+            BT::OutputPort<geometry_msgs::msg::PoseStamped>("position")
     };
 }
 
