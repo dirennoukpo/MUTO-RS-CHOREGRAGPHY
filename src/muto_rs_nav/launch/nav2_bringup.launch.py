@@ -81,6 +81,13 @@ def generate_launch_description():
             "Publish a fallback static transform odom->base_link when no odom TF is available"
         ),
     )
+    fake_map_tf_arg = DeclareLaunchArgument(
+        "use_fake_map_tf",
+        default_value="True",
+        description=(
+            "Publish a fallback static transform map->odom when no map TF is available"
+        ),
+    )
 
     fake_odom_tf = Node(
         package="tf2_ros",
@@ -88,6 +95,13 @@ def generate_launch_description():
         name="fake_odom_tf",
         arguments=["0", "0", "0", "0", "0", "0", "odom", "base_link"],
         condition=IfCondition(LaunchConfiguration("use_fake_odom_tf")),
+    )
+    fake_map_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="fake_map_tf",
+        arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+        condition=IfCondition(LaunchConfiguration("use_fake_map_tf")),
     )
 
     bringup = IncludeLaunchDescription(
@@ -106,6 +120,8 @@ def generate_launch_description():
         map_arg,
         params_arg,
         fake_odom_tf_arg,
+        fake_map_tf_arg,
         fake_odom_tf,
+        fake_map_tf,
         bringup,
     ])
