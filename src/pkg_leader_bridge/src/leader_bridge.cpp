@@ -42,10 +42,13 @@ public:
 private:
   void configure_pose_bridge(const std::string &topic, const std::string &type)
   {
+    // Use TRANSIENT_LOCAL so we receive the last retained message (e.g. from AMCL)
+    const auto pose_qos = rclcpp::QoS(1).transient_local().reliable();
+
     if (type == "pose_stamped") {
       pose_stamped_subscription_ = create_subscription<geometry_msgs::msg::PoseStamped>(
         topic,
-        10,
+        pose_qos,
         [this](const geometry_msgs::msg::PoseStamped::SharedPtr message) {
           pose_publisher_->publish(*message);
         });
@@ -55,7 +58,7 @@ private:
     if (type == "pose_with_covariance_stamped") {
       pose_with_covariance_subscription_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         topic,
-        10,
+        pose_qos,
         [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr message) {
           geometry_msgs::msg::PoseStamped pose;
           pose.header = message->header;
@@ -66,6 +69,7 @@ private:
     }
 
     if (type == "odometry") {
+      // Odometry is typically VOLATILE/BEST_EFFORT — keep default QoS
       odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
         topic,
         10,
