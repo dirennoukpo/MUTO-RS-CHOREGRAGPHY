@@ -61,6 +61,8 @@ def _create_bringup_action(context):
                 "params_file": configured_params,
                 "use_sim_time": "False",
                 "autostart": "True",
+                "slam": "False",
+                "use_localization": "True",
             }.items(),
         )
     ]
