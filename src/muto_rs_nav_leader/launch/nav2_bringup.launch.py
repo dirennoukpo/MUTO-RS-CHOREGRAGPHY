@@ -35,6 +35,7 @@ def _create_bringup_action(context):
     map_path = LaunchConfiguration("map").perform(context)
     params_path = Path(LaunchConfiguration("params_file").perform(context)).expanduser().resolve()
     bt_xml_path = Path(LaunchConfiguration("bt_xml_file").perform(context)).expanduser().resolve()
+    use_sim_time = LaunchConfiguration("use_sim_time").perform(context)
 
     if not params_path.exists():
         raise RuntimeError(f"params_file not found: {params_path}")
@@ -59,7 +60,7 @@ def _create_bringup_action(context):
             launch_arguments={
                 "map": map_path,
                 "params_file": configured_params,
-                "use_sim_time": "False",
+                "use_sim_time": use_sim_time,
                 "autostart": "True",
                 "slam": "False",
                 "use_localization": "True",
@@ -88,6 +89,11 @@ def generate_launch_description():
         "bt_xml_file",
         default_value=default_bt_xml.as_posix(),
         description="Path to Nav2 behavior tree xml",
+    )
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="False",
+        description="Use simulation clock if true",
     )
     leader_bridge_arg = DeclareLaunchArgument(
         "use_leader_bridge",
@@ -141,6 +147,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_odom_tf",
         arguments=["0", "0", "0", "0", "0", "0", "odom", "base_footprint"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_odom_tf")),
     )
     fake_map_tf = Node(
@@ -148,6 +155,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_map_tf",
         arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_map_tf")),
     )
     fake_base_link_tf = Node(
@@ -155,6 +163,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_base_link_tf",
         arguments=["0", "0", "0", "0", "0", "0", "base_footprint", "base_link"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_base_link_tf")),
     )
     leader_bridge = Node(
@@ -179,6 +188,7 @@ def generate_launch_description():
         map_arg,
         params_arg,
         bt_xml_arg,
+        use_sim_time_arg,
         leader_bridge_arg,
         leader_pose_source_topic_arg,
         leader_pose_source_type_arg,

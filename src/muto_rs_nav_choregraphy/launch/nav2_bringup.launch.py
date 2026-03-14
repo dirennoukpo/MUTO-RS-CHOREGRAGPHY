@@ -33,6 +33,7 @@ def _find_repo_root() -> Path:
 def _create_bringup_action(context):
     map_path = LaunchConfiguration("map").perform(context)
     params_path = Path(LaunchConfiguration("params_file").perform(context)).expanduser().resolve()
+    use_sim_time = LaunchConfiguration("use_sim_time").perform(context)
 
     if not params_path.exists():
         raise RuntimeError(f"params_file not found: {params_path}")
@@ -45,7 +46,7 @@ def _create_bringup_action(context):
             launch_arguments={
                 "map": map_path,
                 "params_file": params_path.as_posix(),
-                "use_sim_time": "False",
+                "use_sim_time": use_sim_time,
                 "autostart": "True",
             }.items(),
         )
@@ -67,23 +68,28 @@ def generate_launch_description():
         default_value=default_params.as_posix(),
         description="Path to Nav2 params yaml",
     )
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="False",
+        description="Use simulation clock if true",
+    )
     fake_odom_tf_arg = DeclareLaunchArgument(
         "use_fake_odom_tf",
-        default_value="True",
+        default_value="False",
         description=(
             "Publish a fallback static transform odom->base_footprint when no odom TF is available"
         ),
     )
     fake_map_tf_arg = DeclareLaunchArgument(
         "use_fake_map_tf",
-        default_value="True",
+        default_value="False",
         description=(
             "Publish a fallback static transform map->odom when no map TF is available"
         ),
     )
     fake_base_link_tf_arg = DeclareLaunchArgument(
         "use_fake_base_link_tf",
-        default_value="True",
+        default_value="False",
         description=(
             "Publish a fallback static transform base_footprint->base_link when base_link TF is unavailable"
         ),
@@ -94,6 +100,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_odom_tf",
         arguments=["0", "0", "0", "0", "0", "0", "odom", "base_footprint"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_odom_tf")),
     )
     fake_map_tf = Node(
@@ -101,6 +108,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_map_tf",
         arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_map_tf")),
     )
     fake_base_link_tf = Node(
@@ -108,6 +116,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="fake_base_link_tf",
         arguments=["0", "0", "0", "0", "0", "0", "base_footprint", "base_link"],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         condition=IfCondition(LaunchConfiguration("use_fake_base_link_tf")),
     )
 
@@ -116,6 +125,7 @@ def generate_launch_description():
     return LaunchDescription([
         map_arg,
         params_arg,
+        use_sim_time_arg,
         fake_odom_tf_arg,
         fake_map_tf_arg,
         fake_base_link_tf_arg,

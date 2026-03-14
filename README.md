@@ -49,6 +49,18 @@ ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_
 ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
+Avec robot reel (TF deja publiees par le robot):
+
+```bash
+ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=False use_fake_base_link_tf:=False
+```
+
+Simulation Gazebo (horloge /clock):
+
+```bash
+ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_sim_time:=True
+```
+
 ## 5) Verif rapide
 
 Dans un autre terminal du container:
