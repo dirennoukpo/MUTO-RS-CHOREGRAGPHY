@@ -1,4 +1,4 @@
-image: electronics_room.pgm
+image: /root/MUTO-RS-CHOREGRAGPHY/src/muto_rs_nav_leader/maps/electronics_room.pgm
 mode: trinary
 resolution: 0.05
 origin: [-10, -10, 0]
