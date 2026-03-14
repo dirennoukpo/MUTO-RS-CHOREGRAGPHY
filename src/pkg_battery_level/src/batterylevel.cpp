@@ -12,13 +12,19 @@
 #include "behaviortree_cpp_v3/bt_factory.h"
 
 CheckBatteryLevel::CheckBatteryLevel(const std::string &name, const BT::NodeConfiguration &config)
-  : BT::SyncActionNode(name, config)
+  : BT::StatefulActionNode(name, config)
 {
     _node = rclcpp::Node::make_shared("check_battery_level");
-    auto id = getInput<std::string>("robot_id");
-    if (!id)
-        throw BT::RuntimeError("Missing InputPort [robot_id]");
-    std::string robot_id = id.value();
+}
+
+void CheckBatteryLevel::update_subscription(const std::string &robot_id)
+{
+    if (_robot_id == robot_id && _sub) {
+        return;
+    }
+
+    _robot_id = robot_id;
+    _has_level = false;
     _sub = _node->create_subscription<std_msgs::msg::Float32>
     (
         "/robot" + robot_id + "/voltage",
@@ -37,16 +43,43 @@ BT::PortsList CheckBatteryLevel::providedPorts()
     {
         BT::InputPort<std::string>("robot_id"),
         BT::InputPort<float>("min_battery_level", 0.0F, "Battery threshold"),
+        BT::InputPort<int>("wait_timeout_ms", 2000, "Timeout before reporting missing battery telemetry"),
         BT::OutputPort<float>("battery_level")
     };
 }
 
-BT::NodeStatus CheckBatteryLevel::tick()
+BT::NodeStatus CheckBatteryLevel::onStart()
+{
+    auto id = getInput<std::string>("robot_id");
+    if (!id) {
+        throw BT::RuntimeError("Missing InputPort [robot_id]: ", id.error());
+    }
+
+    update_subscription(id.value());
+    const auto timeout_ms = getInput<int>("wait_timeout_ms").value_or(2000);
+    _deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+    return wait_for_battery();
+}
+
+BT::NodeStatus CheckBatteryLevel::onRunning()
+{
+    return wait_for_battery();
+}
+
+void CheckBatteryLevel::onHalted()
+{
+}
+
+BT::NodeStatus CheckBatteryLevel::wait_for_battery()
 {
     rclcpp::spin_some(_node);
 
     if (!_has_level.load()) {
-        return BT::NodeStatus::FAILURE;
+        if (std::chrono::steady_clock::now() >= _deadline) {
+            return BT::NodeStatus::FAILURE;
+        }
+        return BT::NodeStatus::RUNNING;
     }
 
     float threshold = 0.0F;

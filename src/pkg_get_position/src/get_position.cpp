@@ -11,7 +11,7 @@
 #include "../include/pkg_get_position/get_position.hpp"
 
 GetPosition::GetPosition(const std::string &name, const BT::NodeConfiguration &config)
-  : BT::SyncActionNode(name, config)
+    : BT::StatefulActionNode(name, config)
 {
     _node = rclcpp::Node::make_shared("get_position");
 }
@@ -41,11 +41,12 @@ BT::PortsList GetPosition::providedPorts()
     return
     {
         BT::InputPort<std::string>("robot_id"),
-            BT::OutputPort<geometry_msgs::msg::PoseStamped>("position")
+        BT::InputPort<int>("wait_timeout_ms", 2000, "Timeout before reporting a missing pose"),
+        BT::OutputPort<geometry_msgs::msg::PoseStamped>("position")
     };
 }
 
-BT::NodeStatus GetPosition::tick()
+BT::NodeStatus GetPosition::onStart()
 {
     auto id = getInput<std::string>("robot_id");
     if (!id) {
@@ -53,14 +54,35 @@ BT::NodeStatus GetPosition::tick()
     }
 
     update_subscription(id.value());
+    const auto timeout_ms = getInput<int>("wait_timeout_ms").value_or(2000);
+    _deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+    return wait_for_pose();
+}
+
+BT::NodeStatus GetPosition::onRunning()
+{
+    return wait_for_pose();
+}
+
+void GetPosition::onHalted()
+{
+}
+
+BT::NodeStatus GetPosition::wait_for_pose()
+{
     rclcpp::spin_some(_node);
 
-    if (!_has_pose) {
-        return BT::NodeStatus::RUNNING;
+    if (_has_pose) {
+        setOutput("position", _pose);
+        return BT::NodeStatus::SUCCESS;
     }
 
-    setOutput("position", _pose);
-    return BT::NodeStatus::SUCCESS;
+    if (std::chrono::steady_clock::now() >= _deadline) {
+        return BT::NodeStatus::FAILURE;
+    }
+
+    return BT::NodeStatus::RUNNING;
 }
 
 BT_REGISTER_NODES(factory) {

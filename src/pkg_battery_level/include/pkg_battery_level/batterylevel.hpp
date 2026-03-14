@@ -10,21 +10,30 @@
 
 #pragma once
 #include <atomic>
+#include <chrono>
+#include <string>
 
 #include "rclcpp/rclcpp.hpp"
 #include "behaviortree_cpp_v3/action_node.h"
 #include "std_msgs/msg/float32.hpp"
 
-class CheckBatteryLevel : public BT::SyncActionNode
+class CheckBatteryLevel : public BT::StatefulActionNode
 {
     public:
         CheckBatteryLevel(const std::string &name, const BT::NodeConfiguration &config);
         static BT::PortsList providedPorts();
-        BT::NodeStatus tick() override;
+        BT::NodeStatus onStart() override;
+        BT::NodeStatus onRunning() override;
+        void onHalted() override;
 
     private:
+        void update_subscription(const std::string &robot_id);
+        BT::NodeStatus wait_for_battery();
+
         std::atomic<float> _level{0.0F};
         std::atomic<bool> _has_level{false};
         rclcpp::Node::SharedPtr _node;
         rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr _sub;
+        std::string _robot_id;
+        std::chrono::steady_clock::time_point _deadline;
 };

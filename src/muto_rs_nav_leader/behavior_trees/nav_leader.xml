@@ -13,12 +13,14 @@
       <!-- 1. Recuperer la position actuelle du robot leader (ID=1) -->
       <GetPosition
         robot_id="1"
+        wait_timeout_ms="5000"
         position="{leader_position}"/>
 
       <!-- 2. Verifier que la batterie est au-dessus du seuil de 7V -->
       <CheckBatteryLevel
         robot_id="1"
         min_battery_level="7.0"
+        wait_timeout_ms="5000"
         battery_level="{battery_level}"/>
 
       <!-- 3. Calculer la nouvelle position cible (offsets par defaut: +3m X, +3m Y) -->

@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 
 add_library(new_position SHARED src/new_position.cpp)
 target_include_directories(new_position PUBLIC
@@ -21,7 +22,8 @@ set_target_properties(new_position PROPERTIES POSITION_INDEPENDENT_CODE ON)
 ament_target_dependencies(new_position
   rclcpp
   behaviortree_cpp_v3
-  geometry_msgs)
+  geometry_msgs
+  tf2)
 
 install(TARGETS new_position
   EXPORT export_${PROJECT_NAME}
@@ -37,7 +39,8 @@ ament_export_include_directories(include)
 ament_export_dependencies(
   rclcpp
   behaviortree_cpp_v3
-  geometry_msgs)
+  geometry_msgs
+  tf2)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

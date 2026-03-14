@@ -10,6 +10,9 @@
 
 #include "../include/pkg_new_position/new_position.hpp"
 
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+
 SetNewPosition::SetNewPosition(const std::string &name, const BT::NodeConfiguration &config)
   : BT::SyncActionNode(name, config)
 {
@@ -38,11 +41,30 @@ BT::NodeStatus SetNewPosition::tick()
     auto offset_y = getInput<double>("offset_y");
     auto offset_z = getInput<double>("offset_z");
 
+    const double delta_x = offset_x ? offset_x.value() : 3.0;
+    const double delta_y = offset_y ? offset_y.value() : 3.0;
+    const double delta_z = offset_z ? offset_z.value() : 0.0;
+
     geometry_msgs::msg::PoseStamped new_pose = ref.value();
-    new_pose.header.frame_id = "map";
-    new_pose.pose.position.x += offset_x ? offset_x.value() : 3.0;
-    new_pose.pose.position.y += offset_y ? offset_y.value() : 3.0;
-    new_pose.pose.position.z += offset_z ? offset_z.value() : 0.0;
+    if (new_pose.header.frame_id.empty()) {
+        new_pose.header.frame_id = "map";
+    }
+
+    tf2::Quaternion quaternion(
+        new_pose.pose.orientation.x,
+        new_pose.pose.orientation.y,
+        new_pose.pose.orientation.z,
+        new_pose.pose.orientation.w
+    );
+
+    double roll = 0.0;
+    double pitch = 0.0;
+    double yaw = 0.0;
+    tf2::Matrix3x3(quaternion).getRPY(roll, pitch, yaw);
+
+    new_pose.pose.position.x += (delta_x * std::cos(yaw)) - (delta_y * std::sin(yaw));
+    new_pose.pose.position.y += (delta_x * std::sin(yaw)) + (delta_y * std::cos(yaw));
+    new_pose.pose.position.z += delta_z;
 
     setOutput("position", new_pose);
     return BT::NodeStatus::SUCCESS;
