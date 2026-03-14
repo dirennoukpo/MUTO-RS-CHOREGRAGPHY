@@ -36,6 +36,13 @@ Avec robot reel:
 ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=False
 ```
 
+Ce mode suppose que le robot publie deja `odom -> base_link`.
+Si `odom` n'existe pas encore, utiliser temporairement:
+
+```bash
+ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=True
+```
+
 ## 4) Lancer Nav2 choreography
 
 ```bash
