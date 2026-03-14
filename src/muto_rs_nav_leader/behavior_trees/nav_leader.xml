@@ -36,7 +36,7 @@
           <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
           <RateController hz="1.0">
             <RecoveryNode number_of_retries="1" name="ComputePathToPose">
-              <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}"/>
               <ReactiveFallback name="ComputePathFallback">
                 <GoalUpdated/>
                 <ClearEntireCostmap name="ClearGlobalCostmap" service_name="global_costmap/clear_entirely_global_costmap"/>
@@ -44,7 +44,7 @@
             </RecoveryNode>
           </RateController>
           <RecoveryNode number_of_retries="1" name="FollowPath">
-            <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+            <FollowPath path="{path}" controller_id="{selected_controller}"/>
             <ReactiveFallback name="FollowPathFallback">
               <GoalUpdated/>
               <ClearEntireCostmap name="ClearLocalCostmap" service_name="local_costmap/clear_entirely_local_costmap"/>
@@ -58,9 +58,9 @@
               <ClearEntireCostmap name="ClearLocalCostmap-Post" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Post" service_name="global_costmap/clear_entirely_global_costmap"/>
             </Sequence>
-            <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
-            <Wait wait_duration="5.0" error_code_id="{wait_error_code}"/>
-            <BackUp backup_dist="0.15" backup_speed="0.05" error_code_id="{backup_error_code}"/>
+            <Spin spin_dist="1.57"/>
+            <Wait wait_duration="5.0"/>
+            <BackUp backup_dist="0.15" backup_speed="0.05"/>
           </RoundRobin>
         </ReactiveFallback>
       </RecoveryNode>
