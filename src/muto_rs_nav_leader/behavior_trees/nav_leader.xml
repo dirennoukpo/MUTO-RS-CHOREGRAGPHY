@@ -19,7 +19,7 @@
       <!-- 2. Verifier que la batterie est au-dessus du seuil de 7V -->
       <CheckBatteryLevel
         robot_id="1"
-        min_battery_level="7.0"
+        min_battery_level="6.0"
         wait_timeout_ms="5000"
         battery_level="{battery_level}"/>
 
