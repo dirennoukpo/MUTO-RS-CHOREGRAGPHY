@@ -2,7 +2,7 @@
 
 Ce dossier contient les fichiers Docker utilises pour l'environnement de dev ROS 2 Humble.
 
-## Methode recommandee (depuis la racine du repo)
+## Methode unique recommandee (depuis la racine du repo)
 
 1. Initialiser le fichier d'environnement:
 
@@ -44,23 +44,9 @@ make down
 
 Description: stoppe et supprime les services/containers du projet.
 
-## Methode script (legacy)
+## Option legacy (si necessaire)
 
-Le script suivant reste disponible:
-
-```bash
-./docker/run_docker.sh
-```
-
-Description: chemin historique qui effectue un `compose up` (avec build) puis ouvre un shell dans le container.
-
-Mode hors-ligne (utilise uniquement l'image locale):
-
-```bash
-./docker/run_docker.sh --offline
-```
-
-Description: demarre sans tentative de build/pull (necessite une image locale deja presente).
+`./docker/run_docker.sh` est conserve pour compatibilite, mais le flux standard doit rester le Makefile.
 
 ## Fichiers du dossier
 
@@ -73,3 +59,4 @@ Description: demarre sans tentative de build/pull (necessite une image locale de
 - Le service Docker Compose est nomme `ros-humble-dev`.
 - Le workspace local est monte dans le container sur `/workspace`.
 - Les UID/GID utilisateur hote sont passes automatiquement via le Makefile.
+- La variable `ROS_DOMAIN_ID` se configure dans `config/.env`.

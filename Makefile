@@ -4,14 +4,19 @@ COMPOSE_FILE := docker-compose.yaml
 ENV_FILE := config/.env
 ENV_TEMPLATE := config/.env.example
 SERVICE := ros-humble-dev
+IMAGE := ros-humble-dev:latest
 
-.PHONY: help env build up down shell logs ps restart clean
+HOST_ENV = HOST_UID="$$(id -u)" HOST_GID="$$(id -g)" HOST_USER="$$(id -un)" HOST_GROUP="$$(id -gn)"
+COMPOSE = docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)"
+
+.PHONY: help env check-docker build up up-offline down shell logs ps restart clean
 
 help:
 	@echo "Docker workflow targets:"
 	@echo "  make env     -> copy $(ENV_TEMPLATE) to $(ENV_FILE)"
 	@echo "  make build   -> docker compose build"
 	@echo "  make up      -> docker compose up -d"
+	@echo "  make up-offline -> docker compose up -d (without build)"
 	@echo "  make down    -> docker compose down --remove-orphans"
 	@echo "  make shell   -> open bash in $(SERVICE) container"
 	@echo "  make logs    -> follow compose logs"
@@ -28,25 +33,36 @@ env:
 		echo "Environment file ready: $(ENV_FILE)"; \
 	fi
 
-build:
-	@HOST_UID="$$(id -u)" HOST_GID="$$(id -g)" HOST_USER="$$(id -un)" HOST_GROUP="$$(id -gn)" \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" build
+check-docker:
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "[ERROR] Docker daemon inaccessible from this terminal."; \
+		exit 1; \
+	fi
 
-up:
-	@HOST_UID="$$(id -u)" HOST_GID="$$(id -g)" HOST_USER="$$(id -un)" HOST_GROUP="$$(id -gn)" \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate
+build: env check-docker
+	@$(HOST_ENV) $(COMPOSE) build
+
+up: env check-docker
+	@$(HOST_ENV) $(COMPOSE) up -d --force-recreate
+
+up-offline: env check-docker
+	@if ! docker image inspect "$(IMAGE)" >/dev/null 2>&1; then \
+		echo "[ERROR] Offline mode requires local image $(IMAGE)."; \
+		exit 1; \
+	fi
+	@$(HOST_ENV) $(COMPOSE) up -d --force-recreate
 
 down:
-	@docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" down --remove-orphans
+	@$(COMPOSE) down --remove-orphans
 
 shell:
-	@docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" exec "$(SERVICE)" bash
+	@$(COMPOSE) exec "$(SERVICE)" bash
 
 logs:
-	@docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" logs -f
+	@$(COMPOSE) logs -f
 
 ps:
-	@docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" ps
+	@$(COMPOSE) ps
 
 restart: down up
 

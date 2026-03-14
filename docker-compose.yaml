@@ -29,7 +29,6 @@ services:
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
-    command: bash
 
 volumes:
   ros-humble-history:

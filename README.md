@@ -19,30 +19,11 @@ Description des commandes:
 - `make build`: construit l'image Docker de developpement.
 - `make up`: demarre les services Docker en arriere-plan.
 - `make shell`: ouvre un shell Bash dans le container `ros-humble-dev`.
-
-Arreter l'environnement:
-
-```bash
-make down
-```
-
 - `make down`: arrete et supprime les containers/services du projet.
 
-## 1) Demarrage Docker (machine hote)
+Documentation Docker detaillee:
 
-Depuis la racine du repo:
-
-```bash
-chmod +x scripts/setup_container_launcher_deps.sh docker/run_docker.sh
-./scripts/setup_container_launcher_deps.sh
-./docker/run_docker.sh
-```
-
-Description des commandes:
-
-- `chmod +x ...`: rend les scripts executables.
-- `./scripts/setup_container_launcher_deps.sh`: installe les dependances cote machine hote pour lancer Docker facilement.
-- `./docker/run_docker.sh`: lance (ou reconstruit) le container et ouvre un shell dedans.
+- `docker/README.md`
 
 ## 2) Build (dans le container)
 
