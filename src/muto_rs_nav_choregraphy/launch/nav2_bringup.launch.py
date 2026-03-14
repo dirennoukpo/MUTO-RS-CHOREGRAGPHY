@@ -81,6 +81,13 @@ def generate_launch_description():
             "Publish a fallback static transform map->odom when no map TF is available"
         ),
     )
+    fake_base_link_tf_arg = DeclareLaunchArgument(
+        "use_fake_base_link_tf",
+        default_value="True",
+        description=(
+            "Publish a fallback static transform base_footprint->base_link when base_link TF is unavailable"
+        ),
+    )
 
     fake_odom_tf = Node(
         package="tf2_ros",
@@ -96,6 +103,13 @@ def generate_launch_description():
         arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
         condition=IfCondition(LaunchConfiguration("use_fake_map_tf")),
     )
+    fake_base_link_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="fake_base_link_tf",
+        arguments=["0", "0", "0", "0", "0", "0", "base_footprint", "base_link"],
+        condition=IfCondition(LaunchConfiguration("use_fake_base_link_tf")),
+    )
 
     bringup = OpaqueFunction(function=_create_bringup_action)
 
@@ -104,7 +118,9 @@ def generate_launch_description():
         params_arg,
         fake_odom_tf_arg,
         fake_map_tf_arg,
+        fake_base_link_tf_arg,
         fake_odom_tf,
         fake_map_tf,
+        fake_base_link_tf,
         bringup,
     ])

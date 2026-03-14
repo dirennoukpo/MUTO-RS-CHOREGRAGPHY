@@ -27,26 +27,26 @@ export MUTO_RS_REPO=/workspace
 Sans robot (TF de secours):
 
 ```bash
-ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True
+ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
 Avec robot reel:
 
 ```bash
-ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=False
+ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=False use_fake_base_link_tf:=False
 ```
 
 Ce mode suppose que le robot publie deja `odom -> base_link`.
 Si `odom` n'existe pas encore, utiliser temporairement:
 
 ```bash
-ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=True
+ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
 ## 4) Lancer Nav2 choreography
 
 ```bash
-ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True
+ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
 ## 5) Verif rapide
