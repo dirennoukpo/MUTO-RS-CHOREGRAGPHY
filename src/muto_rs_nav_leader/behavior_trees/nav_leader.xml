@@ -1,9 +1,35 @@
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
+    <!--
+      Ports custom:
+        GetPosition      : robot_id="1"           → {leader_position} (PoseStamped)
+        CheckBatteryLevel: robot_id="1", seuil 7V → {battery_level}   (float)
+        SetNewPosition   : ref={leader_position}   → {goal}            (PoseStamped)
+      Le goal est ensuite transmis à Nav2 ComputePathToPose.
+      Si la batterie est < 7V, CheckBatteryLevel retourne FAILURE : la navigation ne s'execute pas.
+    -->
     <Sequence name="leader_sequence">
-      <GetPosition/>
-      <CheckBatteryLevel/>
-      <SetNewPosition/>
+
+      <!-- 1. Recuperer la position actuelle du robot leader (ID=1) -->
+      <GetPosition
+        robot_id="1"
+        position="{leader_position}"/>
+
+      <!-- 2. Verifier que la batterie est au-dessus du seuil de 7V -->
+      <CheckBatteryLevel
+        robot_id="1"
+        min_battery_level="7.0"
+        battery_level="{battery_level}"/>
+
+      <!-- 3. Calculer la nouvelle position cible (offsets par defaut: +3m X, +3m Y) -->
+      <SetNewPosition
+        ref_position="{leader_position}"
+        offset_x="3.0"
+        offset_y="3.0"
+        offset_z="0.0"
+        position="{goal}"/>
+
+      <!-- 4. Navigation Nav2 vers {goal} avec replanning et recovery -->
       <RecoveryNode number_of_retries="6" name="NavigateRecovery">
         <PipelineSequence name="NavigateWithReplanning">
           <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
@@ -38,6 +64,7 @@
           </RoundRobin>
         </ReactiveFallback>
       </RecoveryNode>
+
     </Sequence>
   </BehaviorTree>
 </root>
