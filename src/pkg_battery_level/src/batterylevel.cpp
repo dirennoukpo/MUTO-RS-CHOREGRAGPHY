@@ -25,10 +25,11 @@ void CheckBatteryLevel::update_subscription(const std::string &robot_id)
 
     _robot_id = robot_id;
     _has_level = false;
+    const auto qos = rclcpp::QoS(1).transient_local().reliable();
     _sub = _node->create_subscription<std_msgs::msg::Float32>
     (
         "/robot" + robot_id + "/voltage",
-        10,
+        qos,
         [this] (const std_msgs::msg::Float32::SharedPtr value)
         {
             _level = value->data;

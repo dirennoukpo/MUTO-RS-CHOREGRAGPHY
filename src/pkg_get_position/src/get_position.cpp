@@ -24,10 +24,11 @@ void GetPosition::update_subscription(const std::string &robot_id)
 
     _robot_id = robot_id;
     _has_pose = false;
+    const auto qos = rclcpp::QoS(1).transient_local().reliable();
     _sub = _node->create_subscription<geometry_msgs::msg::PoseStamped>
     (
         "/robot" + robot_id + "/pose",
-        10,
+        qos,
         [this] (const geometry_msgs::msg::PoseStamped::SharedPtr pose)
         {
             _pose = *pose;

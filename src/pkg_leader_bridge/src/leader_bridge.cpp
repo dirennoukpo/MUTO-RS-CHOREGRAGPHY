@@ -22,8 +22,9 @@ public:
     const auto pose_output_topic = declare_parameter<std::string>("pose_output_topic", "/robot" + robot_id + "/pose");
     const auto voltage_output_topic = declare_parameter<std::string>("voltage_output_topic", "/robot" + robot_id + "/voltage");
 
-    pose_publisher_ = create_publisher<geometry_msgs::msg::PoseStamped>(pose_output_topic, 10);
-    voltage_publisher_ = create_publisher<std_msgs::msg::Float32>(voltage_output_topic, 10);
+    const auto output_qos = rclcpp::QoS(1).transient_local().reliable();
+    pose_publisher_ = create_publisher<geometry_msgs::msg::PoseStamped>(pose_output_topic, output_qos);
+    voltage_publisher_ = create_publisher<std_msgs::msg::Float32>(voltage_output_topic, output_qos);
 
     configure_pose_bridge(pose_source_topic, pose_source_type);
     configure_voltage_bridge(voltage_source_topic, voltage_source_type);
