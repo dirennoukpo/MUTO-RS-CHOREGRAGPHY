@@ -51,6 +51,10 @@ Sans robot (TF de secours):
 ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
+Attention: ce mode sert surtout au bringup, au debug TF et a l'affichage dans RViz.
+Avec des TF statiques `odom -> base_footprint -> base_link`, le robot ne bougera pas vraiment pour Nav2.
+Pour qu'une navigation aboutisse, il faut une odometrie dynamique et un robot ou simulateur qui consomme `cmd_vel`.
+
 Avec robot reel:
 
 ```bash
@@ -64,11 +68,17 @@ Si `odom` n'existe pas encore, utiliser temporairement:
 ros2 launch /workspace/src/muto_rs_nav_leader/launch/nav2_bringup.launch.py use_fake_map_tf:=False use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
 
+Ce mode reste un mode de secours pour demarrer Nav2. Il ne remplace pas une vraie transform dynamique `odom -> base_link` pour faire avancer le robot.
+
 ## 4) Lancer Nav2 choreography
 
 ```bash
 ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_fake_map_tf:=True use_fake_odom_tf:=True use_fake_base_link_tf:=True
 ```
+
+Attention: avec `use_fake_odom_tf:=True` et `use_fake_base_link_tf:=True`, la chaine TF du robot est statique.
+Nav2 peut alors se lancer, recevoir des goals et calculer un chemin, mais il ne peut pas confirmer un deplacement reel sans odometrie dynamique.
+Ce mode est utile pour verifier la carte, AMCL et les topics, pas pour valider une navigation complete.
 
 Avec robot reel (TF deja publiees par le robot):
 
@@ -81,6 +91,8 @@ Simulation Gazebo (horloge /clock):
 ```bash
 ros2 launch /workspace/src/muto_rs_nav_choregraphy/launch/nav2_bringup.launch.py use_sim_time:=True
 ```
+
+En simulation complete, il faut aussi un robot simule qui publie une odometrie dynamique, la TF associee et qui applique `cmd_vel`.
 
 ## 5) Verif rapide
 
