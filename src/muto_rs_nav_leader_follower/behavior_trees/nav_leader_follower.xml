@@ -1,0 +1,35 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <!--
+      Follower behavior (robot_id=2):
+      1) Check battery level
+      2) Read leader pose (robot_id=1)
+      3) Compute follower target pose with offset
+      4) Navigate continuously to the updated target
+    -->
+    <ReactiveSequence name="FollowerBehavior">
+      <CheckBatteryLevel
+        robot_id="2"
+        min_battery_level="6.0"
+        wait_timeout_ms="5000"
+        battery_level="{battery_level}"/>
+
+      <GetPosition
+        robot_id="1"
+        wait_timeout_ms="5000"
+        position="{leader_position}"/>
+
+      <SetNewPosition
+        ref_position="{leader_position}"
+        offset_x="-2.0"
+        offset_y="0.0"
+        offset_z="0.0"
+        position="{goal}"/>
+
+      <!-- Anti-oscillation gate: update path only when needed -->
+      <DistanceController distance="0.5">
+        <NavigateToPose goal="{goal}"/>
+      </DistanceController>
+    </ReactiveSequence>
+  </BehaviorTree>
+</root>
