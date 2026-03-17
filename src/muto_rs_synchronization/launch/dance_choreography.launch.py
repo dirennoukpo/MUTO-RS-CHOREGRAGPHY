@@ -4,20 +4,20 @@ ROS 2 launch file for MUTO-RS dance choreography.
 
 Supports two modes:
   1. Leader (PC/central orchestrator):
-     ros2 launch muto_rs_nav_choregraphy dance_choreography.launch.py mode:=leader
+    ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=leader
   
   2. Follower (each robot):
-     ros2 launch muto_rs_nav_choregraphy dance_choreography.launch.py mode:=follower
+      ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=follower
 
 Examples:
   # Leader with 2 loops and 0.9x tempo
-  ros2 launch muto_rs_nav_choregraphy dance_choreography.launch.py mode:=leader loops:=2 beat:=0.9
+    ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=leader loops:=2 beat:=0.9
 
   # Follower with larger steps
-  ros2 launch muto_rs_nav_choregraphy dance_choreography.launch.py mode:=follower step_width:=20
+    ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=follower step_width:=20
 
   # Follower in dry-run mode (no hardware control)
-  ros2 launch muto_rs_nav_choregraphy dance_choreography.launch.py mode:=follower dry_run:=true
+    ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=follower dry_run:=true
 """
 
 import os
@@ -37,7 +37,7 @@ def _build_nodes(context):
     if mode == "leader":
         nodes.append(
             Node(
-                package="muto_rs_nav_choregraphy",
+                package="muto_rs_synchronization",
                 namespace="dance",
                 executable="dance_leader.py",
                 name="leader",
@@ -60,7 +60,7 @@ def _build_nodes(context):
 
         nodes.append(
             Node(
-                package="muto_rs_nav_choregraphy",
+                package="muto_rs_synchronization",
                 namespace="dance",
                 executable="dance_follower.py",
                 name="follower",
