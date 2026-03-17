@@ -152,6 +152,7 @@ class DanceFollower(Node):
 
 
 def parse_args() -> argparse.Namespace:
+    import rclpy.utilities
     parser = argparse.ArgumentParser(description="MUTO-RS dance follower (ROS2)")
     parser.add_argument(
         "--step-width", type=int, default=16,
@@ -161,7 +162,8 @@ def parse_args() -> argparse.Namespace:
         "--dry-run", action="store_true",
         help="Print commands without sending to robot hardware"
     )
-    return parser.parse_args()
+    # Strip ROS-injected args (--ros-args, -r __node:=...) before argparse sees them
+    return parser.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
 
 def main() -> int:

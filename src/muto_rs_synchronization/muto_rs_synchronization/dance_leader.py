@@ -118,13 +118,14 @@ class DanceLeader(Node):
 
 
 def parse_args() -> argparse.Namespace:
+    import rclpy.utilities
     parser = argparse.ArgumentParser(description="MUTO-RS dance leader (ROS2)")
     parser.add_argument("--loops",      type=int,   default=1,   help="Number of full dance loops")
     parser.add_argument("--beat",       type=float, default=1.0, help="Tempo multiplier (<1 faster)")
     parser.add_argument("--speed",      type=int,   default=2,   help="Speed level sent to followers (1-5)")
     parser.add_argument("--step-width", type=int,   default=16,  help="Step width for locomotion (10-25)")
-    # rclpy expects its own args last; pass remaining to ROS
-    return parser.parse_args()
+    # Strip ROS-injected args (--ros-args, -r __node:=...) before argparse sees them
+    return parser.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
 
 def main() -> int:
