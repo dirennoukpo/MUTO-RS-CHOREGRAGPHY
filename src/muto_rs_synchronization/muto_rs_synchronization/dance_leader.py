@@ -57,86 +57,153 @@ def choreography(speed: int, step_width: int) -> list[Step]:
       5 Turn_around  6 Say_no  7 Crouching  8 Stride
     """
     _ = step_width  # width is embedded in follower's RobotController config
-    return [
+    # return [
 
-        #00:00
+    #     #00:00
 
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
-        Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
+    #     Step("Forward hit",  "MOVE:forward",     0.6),
 
-        # 0014
+    #     # 0014
     
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide left",   "MOVE:left",        0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
-        Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide left",   "MOVE:left",        0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
+    #     Step("Slide right",  "MOVE:right",       0.5),
 
 
 
 
-        # Step("Forward hit",  "MOVE:forward",     1.1),
-        # Step("Warm up",      "ACTION:8",         2.4),
-        # Step("Warm up",      "ACTION:8",         2.4),
-        # Step("Warm up",      "ACTION:8",         2.4),
-        # Step("Warm up",      "ACTION:8",         2.4),
-        # Step("Say hello",    "ACTION:2",         1.6),
-        # Step("Slide left",   "MOVE:left",        1.0),
-        # Step("Slide right",  "MOVE:right",       1.0),
-        # Step("Turn left",    "MOVE:turnleft",    0.9),
-        # Step("Turn right",   "MOVE:turnright",   0.9),
-        # Step("Back hit",     "MOVE:back",        0.8),
-        # Step("Pose stretch", "ACTION:1",         1.8),
-        # Step("Final crouch", "ACTION:7",         1.8),
+    #     # Step("Forward hit",  "MOVE:forward",     1.1),
+    #     # Step("Warm up",      "ACTION:8",         2.4),
+    #     # Step("Warm up",      "ACTION:8",         2.4),
+    #     # Step("Warm up",      "ACTION:8",         2.4),
+    #     # Step("Warm up",      "ACTION:8",         2.4),
+    #     # Step("Say hello",    "ACTION:2",         1.6),
+    #     # Step("Slide left",   "MOVE:left",        1.0),
+    #     # Step("Slide right",  "MOVE:right",       1.0),
+    #     # Step("Turn left",    "MOVE:turnleft",    0.9),
+    #     # Step("Turn right",   "MOVE:turnright",   0.9),
+    #     # Step("Back hit",     "MOVE:back",        0.8),
+    #     # Step("Pose stretch", "ACTION:1",         1.8),
+    #     # Step("Final crouch", "ACTION:7",         1.8),
+    # ]
+    base = [
+
+        # ===== PHRASE 1 =====
+        Step("Forward groove", "MOVE:forward", 0.9),
+        Step("Forward groove", "MOVE:forward", 0.9),
+
+        Step("Left hit",       "MOVE:left",    0.5),
+        Step("Right hit",      "MOVE:right",   0.5),
+
+        Step("Turn left",      "MOVE:turnleft", 0.7),
+        Step("Turn right",     "MOVE:turnright",0.7),
+
+        Step("Back groove",    "MOVE:back",    0.7),
+        Step("Pose",           "ACTION:1",     1.2),
+
+        # ===== PHRASE 2 =====
+        Step("Slide left",     "MOVE:left",    0.5),
+        Step("Slide right",    "MOVE:right",   0.5),
+        Step("Slide left",     "MOVE:left",    0.5),
+        Step("Slide right",    "MOVE:right",   0.5),
+
+        Step("Forward hit",    "MOVE:forward", 0.6),
+        Step("Forward hit",    "MOVE:forward", 0.6),
+
+        Step("Spin",           "MOVE:turnleft",1.0),
+        Step("Crouch",         "ACTION:7",     1.2),
     ]
 
+    variation = [
+
+        Step("Fast left",      "MOVE:left",    0.4),
+        Step("Fast right",     "MOVE:right",   0.4),
+        Step("Fast left",      "MOVE:left",    0.4),
+        Step("Fast right",     "MOVE:right",   0.4),
+
+        Step("Forward attack", "MOVE:forward", 0.6),
+        Step("Back attack",    "MOVE:back",    0.6),
+
+        Step("Turn combo",     "MOVE:turnright", 0.8),
+        Step("Turn combo",     "MOVE:turnleft",  0.8),
+
+        Step("Big pose",       "ACTION:8",     1.5),
+    ]
+
+    finale = [
+        Step("Slow forward",   "MOVE:forward", 1.0),
+        Step("Slow forward",   "MOVE:forward", 1.0),
+
+        Step("Final spin",     "MOVE:turnleft", 1.2),
+        Step("Final pose",     "ACTION:1",      2.0),
+        Step("Final crouch",   "ACTION:7",      2.0),
+    ]
+
+    # ===== ASSEMBLAGE =====
+    steps = []
+
+    # Intro (lent)
+    steps += base
+
+    # Corps (répétition intelligente)
+    for i in range(6):   # ajuste ici pour la durée (~5 min)
+        steps += base
+        steps += variation
+
+    # Final
+    steps += finale
+
+    return steps
 
 def load_timeline(path: str) -> list[TimelineCue]:
     """Load timeline cues from JSON.
