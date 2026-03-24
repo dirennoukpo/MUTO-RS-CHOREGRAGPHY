@@ -49,16 +49,25 @@ def choreography(speed: int, step_width: int) -> list[Step]:
     """
     _ = step_width  # width is embedded in follower's RobotController config
     return [
-        Step("Warm up",      "ACTION:4",         2.4),
-        Step("Say hello",    "ACTION:2",         1.6),
-        Step("Slide left",   "MOVE:left",        1.0),
-        Step("Slide right",  "MOVE:right",       1.0),
-        Step("Turn left",    "MOVE:turnleft",    0.9),
-        Step("Turn right",   "MOVE:turnright",   0.9),
-        Step("Forward hit",  "MOVE:forward",     0.8),
-        Step("Back hit",     "MOVE:back",        0.8),
-        Step("Pose stretch", "ACTION:1",         1.8),
-        Step("Final crouch", "ACTION:7",         1.8),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        Step("Warm up",      "ACTION:8",         2.4),
+        # Step("Say hello",    "ACTION:2",         1.6),
+        # Step("Slide left",   "MOVE:left",        1.0),
+        # Step("Slide right",  "MOVE:right",       1.0),
+        # Step("Turn left",    "MOVE:turnleft",    0.9),
+        # Step("Turn right",   "MOVE:turnright",   0.9),
+        # Step("Forward hit",  "MOVE:forward",     0.8),
+        # Step("Back hit",     "MOVE:back",        0.8),
+        # Step("Pose stretch", "ACTION:1",         1.8),
+        # Step("Final crouch", "ACTION:7",         1.8),
     ]
 
 
