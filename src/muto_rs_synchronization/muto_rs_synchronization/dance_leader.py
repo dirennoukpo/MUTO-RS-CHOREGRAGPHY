@@ -75,6 +75,7 @@ def choreography(speed: int, step_width: int) -> list[Step]:
         Step("Forward hit",  "MOVE:forward",     0.6),
         Step("Forward hit",  "MOVE:forward",     0.6),
         Step("Forward hit",  "MOVE:forward",     0.6),
+        Step("Forward hit",  "MOVE:forward",     0.6),
     
         # Step("Slide left",   "MOVE:left",        0.5),
         # Step("Slide left",   "MOVE:left",        0.5),
