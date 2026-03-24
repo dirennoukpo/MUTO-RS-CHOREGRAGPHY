@@ -1,0 +1,38 @@
+[
+  {
+    "t": 0.00,
+    "name": "Intro warmup",
+    "cmd": "ACTION:8",
+    "hold": 1.20
+  },
+  {
+    "t": 1.50,
+    "name": "Beat accent left",
+    "cmd": "MOVE:left",
+    "hold": 0.25
+  },
+  {
+    "t": 1.95,
+    "name": "Beat accent right",
+    "cmd": "MOVE:right",
+    "hold": 0.25
+  },
+  {
+    "t": 2.40,
+    "name": "Turn left",
+    "cmd": "MOVE:turnleft",
+    "hold": 0.35
+  },
+  {
+    "t": 2.95,
+    "name": "Turn right",
+    "cmd": "MOVE:turnright",
+    "hold": 0.35
+  },
+  {
+    "t": 3.55,
+    "name": "Pose",
+    "cmd": "ACTION:1",
+    "hold": 0.90
+  }
+]
