@@ -17,6 +17,7 @@ RUN set -eux; \
         bash-completion \
         build-essential \
         curl \
+        ffmpeg \
         git \
         iputils-ping \
         nano \

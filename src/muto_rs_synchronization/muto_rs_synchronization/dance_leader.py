@@ -23,8 +23,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
 import time
+from typing import Any
 
 import rclpy
 from rclpy.node import Node
@@ -47,6 +52,22 @@ class TimelineCue:
         self.name = name
         self.cmd = cmd
         self.hold_s = hold_s
+
+
+class TimelineSelection:
+    def __init__(
+        self,
+        cues: list[TimelineCue],
+        source_type: str,
+        timeline_file: str,
+        audio_path: str | None = None,
+        bpm: float | None = None,
+    ) -> None:
+        self.cues = cues
+        self.source_type = source_type
+        self.timeline_file = timeline_file
+        self.audio_path = audio_path
+        self.bpm = bpm
 
 
 def choreography(speed: int, step_width: int) -> list[Step]:
@@ -240,6 +261,121 @@ def load_timeline(path: str) -> list[TimelineCue]:
     return cues
 
 
+def _aggressive_cmd_for_beat(idx: int, beat_pos: int | None, is_downbeat: bool) -> str:
+    """Return a punchy move pattern based on beat index and bar position."""
+    if is_downbeat:
+        # Downbeats drive the strongest accents.
+        strong_cycle = ["MOVE:forward", "MOVE:turnleft", "MOVE:turnright", "ACTION:8"]
+        return strong_cycle[(idx // 4) % len(strong_cycle)]
+
+    if beat_pos == 2:
+        return "MOVE:left"
+    if beat_pos == 3:
+        return "MOVE:right"
+    if beat_pos == 4:
+        return "MOVE:back"
+
+    # Fallback when beat positions are missing or irregular.
+    alt = ["MOVE:left", "MOVE:right", "MOVE:turnleft", "MOVE:turnright"]
+    return alt[idx % len(alt)]
+
+
+def build_aggressive_timeline_from_beats(data: dict[str, Any]) -> list[TimelineCue]:
+    """Build a choreography timeline from beat-analysis JSON data.
+
+    Expected keys in the JSON (as produced by beat analyzers):
+    - beats: list[float]
+    - downbeats: optional list[float]
+    - beat_positions: optional list[int] with values 1..4
+    """
+    beats = data.get("beats", [])
+    downbeats = data.get("downbeats", [])
+    beat_positions = data.get("beat_positions", [])
+
+    if not isinstance(beats, list) or len(beats) == 0:
+        raise ValueError("Beat JSON must contain a non-empty 'beats' list")
+
+    beat_times = [float(x) for x in beats]
+    downbeat_set = {round(float(x), 2) for x in downbeats} if isinstance(downbeats, list) else set()
+
+    cues: list[TimelineCue] = []
+    for i, t_s in enumerate(beat_times):
+        beat_pos = None
+        if isinstance(beat_positions, list) and i < len(beat_positions):
+            try:
+                beat_pos = int(beat_positions[i])
+            except (TypeError, ValueError):
+                beat_pos = None
+
+        is_downbeat = round(t_s, 2) in downbeat_set or beat_pos == 1
+        cmd = _aggressive_cmd_for_beat(i, beat_pos, is_downbeat)
+
+        # Keep movement snappy: hold is slightly shorter than interval to next beat.
+        if i + 1 < len(beat_times):
+            dt = max(0.06, beat_times[i + 1] - t_s)
+            hold_s = max(0.08, min(0.42, dt * 0.72))
+        else:
+            hold_s = 0.25
+
+        name = f"Beat {i + 1}"
+        cues.append(TimelineCue(t_s=t_s, name=name, cmd=cmd, hold_s=hold_s))
+
+    # Add a final strong pose near the end of the track.
+    end_t = beat_times[-1] + 0.12
+    cues.append(TimelineCue(t_s=end_t, name="Final power pose", cmd="ACTION:7", hold_s=0.75))
+    return cues
+
+
+def load_timeline_or_beats(path: str) -> TimelineSelection:
+    """Load either direct timeline JSON or beat-analysis JSON."""
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    if isinstance(raw, list):
+        # Native cue timeline format.
+        cues = []
+        for i, item in enumerate(raw):
+            if not isinstance(item, dict):
+                raise ValueError(f"Timeline item #{i} must be an object")
+            t_s = float(item["t"])
+            name = str(item.get("name", f"Cue {i + 1}"))
+            cmd = str(item["cmd"])
+            hold_s = float(item.get("hold", 0.0))
+            if t_s < 0:
+                raise ValueError(f"Timeline item #{i} has negative t={t_s}")
+            if hold_s < 0:
+                raise ValueError(f"Timeline item #{i} has negative hold={hold_s}")
+            cues.append(TimelineCue(t_s=t_s, name=name, cmd=cmd, hold_s=hold_s))
+        cues.sort(key=lambda c: c.t_s)
+        return TimelineSelection(
+            cues=cues,
+            source_type="timeline",
+            timeline_file=path,
+        )
+
+    if isinstance(raw, dict) and "beats" in raw:
+        cues = build_aggressive_timeline_from_beats(raw)
+        audio_path = str(raw.get("path")) if raw.get("path") else None
+        bpm = None
+        if raw.get("bpm") is not None:
+            bpm = float(raw.get("bpm"))
+        return TimelineSelection(
+            cues=cues,
+            source_type="beats",
+            timeline_file=path,
+            audio_path=audio_path,
+            bpm=bpm,
+        )
+
+    # Fallback to strict timeline parser for clear error messages.
+    cues = load_timeline(path)
+    return TimelineSelection(
+        cues=cues,
+        source_type="timeline",
+        timeline_file=path,
+    )
+
+
 class DanceLeader(Node):
     def __init__(
         self,
@@ -249,6 +385,11 @@ class DanceLeader(Node):
         step_width: int,
         timeline_path: str | None,
         song_delay: float,
+        audio_file: str | None,
+        audio_name: str | None,
+        audio_dir: str,
+        audio_player: str,
+        play_audio: bool,
     ) -> None:
         super().__init__("dance_leader")
         self.loops = loops
@@ -257,6 +398,12 @@ class DanceLeader(Node):
         self.step_width = step_width
         self.timeline_path = timeline_path
         self.song_delay = song_delay
+        self.audio_file = audio_file
+        self.audio_name = audio_name
+        self.audio_dir = audio_dir
+        self.audio_player = audio_player
+        self.play_audio = play_audio
+        self._audio_proc: subprocess.Popen[str] | None = None
 
         self._pub = self.create_publisher(String, DANCE_TOPIC, qos_profile=10)
 
@@ -269,6 +416,88 @@ class DanceLeader(Node):
             self.get_logger().info(
                 f"Timeline mode enabled: file={timeline_path}, song_delay={song_delay}s"
             )
+
+    def _pick_audio_player(self) -> list[str] | None:
+        """Return the command prefix to run an audio player, or None if unavailable."""
+        if self.audio_player != "auto":
+            if shutil.which(self.audio_player) is None:
+                self.get_logger().warning(
+                    f"Requested audio player '{self.audio_player}' not found in PATH"
+                )
+                return None
+            # Generic invocation: <player> <file>
+            return [self.audio_player]
+
+        # Auto-detect common CLI players in priority order.
+        if shutil.which("ffplay"):
+            return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error"]
+        if shutil.which("mpg123"):
+            return ["mpg123", "-q"]
+        if shutil.which("cvlc"):
+            return ["cvlc", "--play-and-exit", "--intf", "dummy"]
+        if shutil.which("paplay"):
+            return ["paplay"]
+        return None
+
+    def _start_audio(self, audio_path: str) -> None:
+        """Start audio playback in background."""
+        player_prefix = self._pick_audio_player()
+        if player_prefix is None:
+            self.get_logger().warning(
+                "No supported audio player found (ffplay/mpg123/cvlc/paplay). "
+                "Install one or pass --audio-player."
+            )
+            return
+
+        cmd = [*player_prefix, audio_path]
+        try:
+            self._audio_proc = subprocess.Popen(cmd)
+            self.get_logger().info(f"Audio playback started with: {' '.join(cmd[:-1])}")
+            self.get_logger().info(f"Audio file playing: {audio_path}")
+        except Exception as exc:
+            self.get_logger().warning(f"Failed to start audio playback: {exc}")
+            self._audio_proc = None
+
+    def _resolve_selected_audio(self, selection: TimelineSelection) -> str | None:
+        """Resolve audio path priority: explicit file > named track > timeline metadata."""
+        if self.audio_file:
+            candidate = Path(self.audio_file).expanduser()
+            return str(candidate) if candidate.exists() else None
+
+        if self.audio_name:
+            base_dir = Path(self.audio_dir).expanduser()
+            named = base_dir / self.audio_name
+            if named.exists():
+                return str(named)
+
+            # Convenience: allow passing a name without extension.
+            for ext in (".mp3", ".wav", ".ogg"):
+                with_ext = base_dir / f"{self.audio_name}{ext}"
+                if with_ext.exists():
+                    return str(with_ext)
+            return None
+
+        if selection.audio_path:
+            candidate = Path(selection.audio_path)
+            if candidate.exists():
+                return str(candidate)
+
+        return None
+
+    def _stop_audio_if_running(self) -> None:
+        if self._audio_proc is None:
+            return
+        if self._audio_proc.poll() is not None:
+            self._audio_proc = None
+            return
+
+        self.get_logger().info("Stopping audio playback process...")
+        self._audio_proc.terminate()
+        try:
+            self._audio_proc.wait(timeout=1.5)
+        except Exception:
+            self._audio_proc.kill()
+        self._audio_proc = None
 
     def _pub_cmd(self, cmd: str) -> None:
         msg = String()
@@ -324,12 +553,45 @@ class DanceLeader(Node):
         self._sleep(0.3)
 
         if self.timeline_path:
-            cues = load_timeline(self.timeline_path)
-            self._run_timeline(cues)
+            selection = load_timeline_or_beats(self.timeline_path)
+            self.get_logger().info("================ SONG SELECTION ================")
+            self.get_logger().info(
+                f"Timeline file: {selection.timeline_file}"
+            )
+            self.get_logger().info(
+                f"Timeline type: {selection.source_type}"
+            )
+            if selection.audio_path:
+                self.get_logger().info(
+                    f"Audio reference: {selection.audio_path}"
+                )
+                self.get_logger().info(
+                    f"Audio file name: {os.path.basename(selection.audio_path)}"
+                )
+            if selection.bpm is not None:
+                self.get_logger().info(f"Detected BPM: {selection.bpm:.2f}")
+            self.get_logger().info("================================================")
+
+            selected_audio = self._resolve_selected_audio(selection)
+
+            if selected_audio:
+                self.get_logger().info(f"Selected audio for autoplay: {selected_audio}")
+            else:
+                self.get_logger().warning(
+                    "No valid audio selected for autoplay. "
+                    "Use --audio-file /path/to/song.mp3 or --audio-name TRACK"
+                )
+
+            if self.play_audio and selected_audio:
+                # Start song now; cue timestamps are relative to this start.
+                self._start_audio(selected_audio)
+
+            self._run_timeline(selection.cues)
             self._pub_cmd("RESET")
             self._sleep(0.5)
             self._pub_cmd("DONE")
             self.get_logger().info("Timeline choreography complete.")
+            self._stop_audio_if_running()
             return
 
         steps = choreography(self.speed, self.step_width)
@@ -369,6 +631,37 @@ def parse_args() -> argparse.Namespace:
         default=5.0,
         help="Delay before first cue in timeline mode (seconds)",
     )
+    parser.add_argument(
+        "--audio-file",
+        type=str,
+        default="",
+        help="Path to song file to play when timeline starts (mp3/wav)",
+    )
+    parser.add_argument(
+        "--audio-name",
+        type=str,
+        default="",
+        help="Song name in audio directory (with or without extension)",
+    )
+    parser.add_argument(
+        "--audio-dir",
+        type=str,
+        default="assets/audio",
+        help="Directory where song files are stored",
+    )
+    parser.add_argument(
+        "--audio-player",
+        type=str,
+        default="auto",
+        help="Audio player binary (auto|ffplay|mpg123|cvlc|paplay)",
+    )
+    parser.add_argument(
+        "--play-audio",
+        type=str,
+        default="true",
+        choices=["true", "false"],
+        help="Enable automatic song playback in timeline mode",
+    )
     # Strip ROS-injected args (--ros-args, -r __node:=...) before argparse sees them
     return parser.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
@@ -383,6 +676,11 @@ def main() -> int:
         step_width=max(10, min(25, args.step_width)),
         timeline_path=args.timeline if args.timeline else None,
         song_delay=max(0.0, args.song_delay),
+        audio_file=args.audio_file if args.audio_file else None,
+        audio_name=args.audio_name if args.audio_name else None,
+        audio_dir=args.audio_dir,
+        audio_player=args.audio_player,
+        play_audio=(args.play_audio.lower() == "true"),
     )
     try:
         node.run()
@@ -391,7 +689,9 @@ def main() -> int:
         node._pub_cmd("STOP")
         time.sleep(0.3)
         node._pub_cmd("RESET")
+        node._stop_audio_if_running()
     finally:
+        node._stop_audio_if_running()
         node.destroy_node()
         rclpy.shutdown()
     return 0

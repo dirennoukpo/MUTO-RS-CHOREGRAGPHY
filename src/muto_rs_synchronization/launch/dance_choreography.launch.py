@@ -46,6 +46,13 @@ def _build_nodes(context):
                     "--beat", LaunchConfiguration("beat").perform(context),
                     "--speed", LaunchConfiguration("speed").perform(context),
                     "--step-width", LaunchConfiguration("step_width").perform(context),
+                    "--timeline", LaunchConfiguration("timeline").perform(context),
+                    "--song-delay", LaunchConfiguration("song_delay").perform(context),
+                    "--audio-file", LaunchConfiguration("audio_file").perform(context),
+                    "--audio-name", LaunchConfiguration("audio_name").perform(context),
+                    "--audio-dir", LaunchConfiguration("audio_dir").perform(context),
+                    "--audio-player", LaunchConfiguration("audio_player").perform(context),
+                    "--play-audio", LaunchConfiguration("play_audio").perform(context),
                 ],
                 output="screen",
             )
@@ -98,6 +105,41 @@ def generate_launch_description() -> LaunchDescription:
             "speed",
             default_value="2",
             description="[Leader] Speed level sent to followers (1-5, default=2)",
+        ),
+        DeclareLaunchArgument(
+            "timeline",
+            default_value="",
+            description="[Leader] Path to timeline/beat JSON file",
+        ),
+        DeclareLaunchArgument(
+            "song_delay",
+            default_value="5.0",
+            description="[Leader] Delay before first cue in timeline mode (seconds)",
+        ),
+        DeclareLaunchArgument(
+            "audio_file",
+            default_value="",
+            description="[Leader] Song file path to autoplay at choreography start",
+        ),
+        DeclareLaunchArgument(
+            "audio_name",
+            default_value="",
+            description="[Leader] Song name from audio directory (with or without extension)",
+        ),
+        DeclareLaunchArgument(
+            "audio_dir",
+            default_value="assets/audio",
+            description="[Leader] Directory containing song files",
+        ),
+        DeclareLaunchArgument(
+            "audio_player",
+            default_value="auto",
+            description="[Leader] Audio player binary (auto|ffplay|mpg123|cvlc|paplay)",
+        ),
+        DeclareLaunchArgument(
+            "play_audio",
+            default_value="true",
+            description="[Leader] Enable automatic song playback (true|false)",
         ),
 
         # ===== Shared parameters =====
