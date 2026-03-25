@@ -454,6 +454,16 @@ class DanceLeader(Node):
             self._audio_proc = subprocess.Popen(cmd)
             self.get_logger().info(f"Audio playback started with: {' '.join(cmd[:-1])}")
             self.get_logger().info(f"Audio file playing: {audio_path}")
+
+            # If player exits immediately, report likely container audio misconfiguration.
+            time.sleep(0.25)
+            rc = self._audio_proc.poll()
+            if rc is not None:
+                self.get_logger().warning(
+                    f"Audio player exited immediately with code {rc}. "
+                    "If running in Docker, expose /dev/snd to the container."
+                )
+                self._audio_proc = None
         except Exception as exc:
             self.get_logger().warning(f"Failed to start audio playback: {exc}")
             self._audio_proc = None
