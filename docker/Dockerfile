@@ -2,50 +2,108 @@ FROM ros:humble-ros-base-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN set -eux; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*; \
-    for attempt in 1 2 3 4 5; do \
-        apt-get update -o Acquire::Retries=3 && break; \
-        if [ "$attempt" -eq 5 ]; then \
-            exit 1; \
-        fi; \
-        sleep 15; \
-        rm -rf /var/lib/apt/lists/*; \
-    done; \
-    apt-get install -y --no-install-recommends \
-        bash-completion \
-        build-essential \
-        curl \
-        ffmpeg \
-        git \
-        iputils-ping \
-        nano \
-        python3-colcon-common-extensions \
-        python3-pip \
-        python3-rosdep \
-        python3-vcstool \
-        ros-humble-behaviortree-cpp-v3 \
-        ros-humble-nav2-bringup \
-        ros-humble-navigation2 \
-        ros-humble-rviz2 \
-        ros-humble-rmw-fastrtps-cpp \
-        unzip \
-        vim; \
-    rm -rf /var/lib/apt/lists/*
+# -------------------------------------------------
+# SYSTEM DEPENDENCIES (CRITICAL FOR AUDIO ANALYSIS)
+# -------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash-completion \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    nano \
+    vim \
+    unzip \
+    ffmpeg \
+    libfftw3-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswresample-dev \
+    libsamplerate0-dev \
+    libsndfile1-dev \
+    libblas-dev \
+    liblapack-dev \
+    gfortran \
+    python3-dev \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    python3-vcstool \
+    ros-humble-rviz2 \
+    ros-humble-navigation2 \
+    ros-humble-nav2-bringup \
+    ros-humble-behaviortree-cpp-v3 \
+    ros-humble-rmw-fastrtps-cpp \
+    && rm -rf /var/lib/apt/lists/*
 
-# Optional non-root user for easier file permissions on host.
+# -------------------------------------------------
+# PYTHON CORE UPGRADE (IMPORTANT)
+# -------------------------------------------------
+RUN pip install --upgrade pip setuptools wheel
+
+# -------------------------------------------------
+# REQUIRED FOR MADMOM (FIX YOUR ERROR)
+# -------------------------------------------------
+RUN pip install cython numpy scipy
+
+# -------------------------------------------------
+# AUDIO ANALYSIS LIBRARIES
+# -------------------------------------------------
+RUN pip install \
+    librosa \
+    soundfile \
+    numba \
+    scikit-learn
+
+# -------------------------------------------------
+# AUBIO (FAST ONSETS)
+# -------------------------------------------------
+RUN pip install aubio
+
+# -------------------------------------------------
+# FIX MADMOM (IMPORTANT)
+# -------------------------------------------------
+
+# 1. Installer dépendances AVANT build
+RUN pip install --upgrade pip setuptools wheel
+
+RUN pip install \
+    cython==0.29.36 \
+    numpy \
+    scipy
+
+# 2. Installer madmom SANS isolation (CRUCIAL)
+RUN pip install --no-build-isolation git+https://github.com/CPJKU/madmom.git
+
+# -------------------------------------------------
+# ESSENTIA (BEST ENERGY / SEGMENTS)
+# NOTE: wheel exists for Linux → faster install
+# -------------------------------------------------
+RUN pip install essentia
+
+# -------------------------------------------------
+# OPTIONAL USER (GOOD PRACTICE)
+# -------------------------------------------------
 ARG USERNAME=ros
 ARG GROUPNAME=ros
 ARG USER_UID=1000
 ARG USER_GID=1000
+
 RUN groupadd --gid ${USER_GID} ${GROUPNAME} \
     && useradd --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
     && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME} \
-    && mkdir -p /commandhistory \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
+
+# -------------------------------------------------
+# ROS ENV + HISTORY
+# -------------------------------------------------
+RUN mkdir -p /commandhistory \
     && chown ${USER_UID}:${USER_GID} /commandhistory \
-    && printf '\nsource /opt/ros/humble/setup.bash\nif [ -f /workspace/install/setup.bash ]; then\n  source /workspace/install/setup.bash\nfi\nexport HISTFILE=/commandhistory/.bash_history\nexport HISTSIZE=5000\nexport HISTFILESIZE=10000\nshopt -s histappend\nPROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\nparse_git_branch() {\n  git rev-parse --abbrev-ref HEAD 2>/dev/null | sed "s/.*/ (git:&)/"\n}\nexport PS1="\\[\\e[1;33m\\][\\h]\\[\\e[0m\\] \\\[\\e[1;32m\\][ros:\\${ROS_DISTRO}]\\[\\e[0m\\] \\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\[\\e[1;35m\\]\\$(parse_git_branch)\\[\\e[0m\\]\\$ "\n' >> /home/${USERNAME}/.bashrc \
+    && printf '\nsource /opt/ros/humble/setup.bash\nif [ -f /workspace/install/setup.bash ]; then\n  source /workspace/install/setup.bash\nfi\nexport HISTFILE=/commandhistory/.bash_history\nexport HISTSIZE=5000\nexport HISTFILESIZE=10000\nshopt -s histappend\nPROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\n' >> /home/${USERNAME}/.bashrc \
     && chown ${USER_UID}:${USER_GID} /home/${USERNAME}/.bashrc
 
 WORKDIR /workspace

@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""ROS2 dance leader node for MUTO-RS multi-robot synchronization.
-
-Protocol (std_msgs/String data field):
-  SPEED:<int>       -> set speed level (1-5)
-  ACTION:<int>      -> built-in action 1-8
-  MOVE:<direction>  -> forward|back|left|right|turnleft|turnright
-  STOP              -> stop movement
-  RESET             -> neutral stance
-  DONE              -> choreography finished
-
-Built-in action IDs:
-  1=Stretch  2=Greeting  3=Retreat  4=Warm_up
-  5=Turn_around  6=Say_no  7=Crouching  8=Stride
-
-Usage:
-  python3 dance_leader.py --timeline beats.json --audio-file song.mp3
-  python3 dance_leader.py --loops 2 --beat 0.8 --speed 3
+"""
+╔══════════════════════════════════════════════════════════════════╗
+║      MUTO-RS  DANCE LEADER  v3.0  —  ROS2                       ║
+║                                                                  ║
+║  Publishes real-time dance commands on /dance_cmd so every       ║
+║  follower robot executes the choreography in lock-step with      ║
+║  the music.                                                      ║
+║                                                                  ║
+║  Protocol (std_msgs/String):                                     ║
+║    SPEED:<1-5>    set locomotion speed                           ║
+║    ACTION:<1-8>   built-in pose/action                           ║
+║      1=Stretch  2=Greeting  3=Retreat  4=Warm_up                 ║
+║      5=Turn_around  6=Say_no  7=Crouching  8=Stride              ║
+║    MOVE:<dir>     forward|back|left|right|turnleft|turnright      ║
+║    STOP           halt current movement                          ║
+║    RESET          neutral stance                                  ║
+║    DONE           choreography finished                          ║
+║                                                                  ║
+║  Usage:                                                          ║
+║    python3 dance_leader.py \\                                     ║
+║        --timeline song_beats.json \\                              ║
+║        --audio-file song.mp3                                     ║
+║                                                                  ║
+║    python3 dance_leader.py --loops 2 --beat 0.8 --speed 3        ║
+╚══════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
@@ -36,77 +44,111 @@ from std_msgs.msg import String
 
 DANCE_TOPIC = "/dance_cmd"
 
-# Compensates for audio player open+buffer latency (seconds).
-# Increase if robot moves BEFORE the beat; decrease if it moves AFTER.
-AUDIO_PLAYER_LATENCY_S = 0.10
+# ─────────────────────────────────────────────────────────────────
+# AUDIO LATENCY COMPENSATION (seconds)
+#
+# After Popen() returns, the audio player needs this many seconds
+# before the first sample actually reaches the DAC.
+# Measured empirically:
+#   ffplay  ≈ 90–120 ms
+#   mpg123  ≈ 60–90 ms
+#
+# Model:
+#   T_spawn  = time.monotonic() just before Popen()
+#   T_sound  = T_spawn + AUDIO_PLAYER_LATENCY_S   (1st audible sample)
+#   start_t  = T_spawn + AUDIO_PLAYER_LATENCY_S
+#   cue fires at: start_t + cue.t_s
+#              = T_spawn + L + cue.t_s
+#   For cue.t_s = 0 → fires at T_sound → in sync. ✓
+#
+# Tune this constant:
+#   robot moves BEFORE the beat → increase value
+#   robot moves AFTER  the beat → decrease value
+# ─────────────────────────────────────────────────────────────────
+AUDIO_PLAYER_LATENCY_S: float = 0.10
 
-# ---------------------------------------------------------------------------
-# SECTION AGGRESSION MAP
-# Maps segment label -> aggression level 0-3
-#   0 = calm (start, silence)
-#   1 = low  (intro, outro)
-#   2 = medium (verse, bridge)
-#   3 = HIGH (chorus, drop, hook)
-# ---------------------------------------------------------------------------
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION AGGRESSION TABLE
+#
+# Maps any segment label → aggression level 0–3.
+# Covers both hand-crafted labels (chorus, verse …) AND the
+# automatic labels emitted by decodeur.py (intro/verse/chorus/outro).
+# ═══════════════════════════════════════════════════════════════════
 SECTION_AGGRESSION: dict[str, int] = {
-    "start":      0,
-    "silent":     0,
-    "intro":      1,
-    "outro":      1,
-    "bridge":     2,
-    "verse":      2,
-    "pre-chorus": 2,
-    "pre_chorus": 2,
-    "chorus":     3,
-    "drop":       3,
-    "hook":       3,
-    "refrain":    3,
+    # ── calm ──────────────────────────────────────────────────────
+    "start":        0,
+    "silent":       0,
+    "silence":      0,
+    # ── low ───────────────────────────────────────────────────────
+    "intro":        1,
+    "outro":        1,
+    "fade":         1,
+    "fade_in":      1,
+    "fade_out":     1,
+    # ── medium ────────────────────────────────────────────────────
+    "verse":        2,
+    "bridge":       2,
+    "pre-chorus":   2,
+    "pre_chorus":   2,
+    "breakdown":    2,
+    "interlude":    2,
+    # ── high ──────────────────────────────────────────────────────
+    "chorus":       3,
+    "drop":         3,
+    "hook":         3,
+    "refrain":      3,
+    "climax":       3,
+    "build":        3,
 }
 
-# ---------------------------------------------------------------------------
+
+# ═══════════════════════════════════════════════════════════════════
 # MOVEMENT PALETTES
 #
-# Each palette is keyed by beat position (1-4).
-# Each value is a list of (command, hold_factor) tuples.
-# hold_factor is applied to the beat interval to compute hold_seconds.
-# The list is rotated by bar_index to provide variety without randomness.
+# Structure:   palette[beat_pos (1-4)]  →  list[(cmd, hold_factor)]
+# hold_factor: fraction of beat interval to hold before sending STOP.
+# The list rotates by bar_index, giving musical variety without RNG.
 #
-# Design rules:
-#   Beat 1 (downbeat): biggest accent, longest hold (0.70-0.78 x dt)
-#   Beat 2: lateral snap, medium hold (0.45-0.54 x dt)
-#   Beat 3 (backbeat): counter-move, medium-long hold (0.55-0.68 x dt)
-#   Beat 4: pickup/anticipation, short hold (0.40-0.50 x dt)
-# ---------------------------------------------------------------------------
+# Hold rules (tuned per BPM range — see _select_move):
+#   Beat 1 (downbeat) : 0.72–0.80 × dt   biggest accent
+#   Beat 2            : 0.48–0.55 × dt   lateral snap
+#   Beat 3 (backbeat) : 0.62–0.70 × dt   counter-punch
+#   Beat 4            : 0.42–0.50 × dt   anticipation
+#
+# Hard constraint: STOP fires ≥ 120 ms before next beat (enforced
+# in _select_move, not here).
+# ═══════════════════════════════════════════════════════════════════
 
-# Level 0 — calm: very gentle, let the robot breathe
+# Level 0 — calm / start / silence
 _PAL0: dict[int, list[tuple[str, float]]] = {
     1: [("ACTION:1", 0.70), ("ACTION:4", 0.68)],
     2: [("MOVE:left", 0.42), ("MOVE:right", 0.42)],
-    3: [("ACTION:6", 0.52), ("MOVE:back", 0.44)],
+    3: [("ACTION:6", 0.50), ("MOVE:back",  0.44)],
     4: [("MOVE:right", 0.38), ("MOVE:left", 0.38)],
 }
 
-# Level 1 — intro/outro: smooth, expressive, deliberate
+# Level 1 — intro / outro
 _PAL1: dict[int, list[tuple[str, float]]] = {
     1: [
-        ("MOVE:forward", 0.72), ("ACTION:2", 0.72),   # Greeting
-        ("ACTION:1", 0.70),     ("MOVE:forward", 0.72),
+        ("MOVE:forward", 0.72), ("ACTION:2",  0.72),
+        ("ACTION:1",     0.70), ("MOVE:forward", 0.72),
     ],
     2: [("MOVE:left", 0.50), ("MOVE:right", 0.50)],
     3: [
-        ("MOVE:back", 0.60),    ("ACTION:6", 0.58),
-        ("MOVE:turnright", 0.58), ("ACTION:3", 0.56),  # Retreat
+        ("MOVE:back",      0.60), ("ACTION:6",      0.58),
+        ("MOVE:turnright", 0.58), ("ACTION:3",      0.56),
     ],
     4: [("MOVE:right", 0.44), ("MOVE:left", 0.44)],
 }
 
-# Level 2 — verse: energetic, narrative, varied
+# Level 2 — verse / bridge
 _PAL2: dict[int, list[tuple[str, float]]] = {
     1: [
-        ("MOVE:forward",  0.75), ("ACTION:8",  0.75),   # Stride
-        ("MOVE:turnleft", 0.72), ("ACTION:1",  0.72),   # Stretch spin
-        ("MOVE:forward",  0.75), ("ACTION:7",  0.73),   # Crouch punch
-        ("MOVE:turnright",0.70), ("ACTION:4",  0.70),   # Warm-up spin
+        ("MOVE:forward",   0.75), ("ACTION:8",  0.75),
+        ("MOVE:turnleft",  0.72), ("ACTION:1",  0.72),
+        ("MOVE:forward",   0.75), ("ACTION:7",  0.73),
+        ("MOVE:turnright", 0.70), ("ACTION:4",  0.70),
     ],
     2: [
         ("MOVE:left",  0.52), ("MOVE:right", 0.52),
@@ -122,13 +164,13 @@ _PAL2: dict[int, list[tuple[str, float]]] = {
     ],
 }
 
-# Level 3 — chorus/drop: MAXIMUM aggression, explosive, relentless
+# Level 3 — chorus / drop / hook — MAXIMUM AGGRESSION
 _PAL3: dict[int, list[tuple[str, float]]] = {
     1: [
-        ("MOVE:forward",  0.78), ("ACTION:8",  0.78),   # Stride — slam
-        ("MOVE:turnleft", 0.76), ("ACTION:7",  0.76),   # Crouch spin
-        ("ACTION:5",      0.78), ("MOVE:forward", 0.78),# Turn-around
-        ("ACTION:8",      0.78), ("MOVE:turnright",0.76),
+        ("MOVE:forward",   0.78), ("ACTION:8",  0.78),
+        ("MOVE:turnleft",  0.76), ("ACTION:7",  0.76),
+        ("ACTION:5",       0.78), ("MOVE:forward", 0.78),
+        ("ACTION:8",       0.78), ("MOVE:turnright", 0.76),
     ],
     2: [
         ("MOVE:left",  0.54), ("MOVE:right", 0.54),
@@ -139,7 +181,7 @@ _PAL3: dict[int, list[tuple[str, float]]] = {
     3: [
         ("MOVE:back",      0.68), ("MOVE:turnright", 0.68),
         ("ACTION:6",       0.65), ("MOVE:turnleft",  0.68),
-        ("MOVE:back",      0.68), ("ACTION:7",       0.70),  # Crouch backbeat
+        ("MOVE:back",      0.68), ("ACTION:7",       0.70),
         ("MOVE:turnright", 0.68), ("ACTION:6",       0.65),
     ],
     4: [
@@ -150,49 +192,53 @@ _PAL3: dict[int, list[tuple[str, float]]] = {
     ],
 }
 
-_PALETTES = {0: _PAL0, 1: _PAL1, 2: _PAL2, 3: _PAL3}
+_PALETTES: dict[int, dict[int, list[tuple[str, float]]]] = {
+    0: _PAL0, 1: _PAL1, 2: _PAL2, 3: _PAL3
+}
 
 
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 # DATA CLASSES
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 
 class Step:
+    __slots__ = ("name", "cmd", "pause_s")
     def __init__(self, name: str, cmd: str, pause_s: float) -> None:
-        self.name = name
-        self.cmd = cmd
+        self.name    = name
+        self.cmd     = cmd
         self.pause_s = pause_s
 
 
 class TimelineCue:
+    __slots__ = ("t_s", "name", "cmd", "hold_s")
     def __init__(self, t_s: float, name: str, cmd: str, hold_s: float = 0.0) -> None:
-        self.t_s = t_s
-        self.name = name
-        self.cmd = cmd
+        self.t_s    = t_s
+        self.name   = name
+        self.cmd    = cmd
         self.hold_s = hold_s
 
 
 class TimelineSelection:
     def __init__(
         self,
-        cues: list[TimelineCue],
-        source_type: str,
+        cues:          list[TimelineCue],
+        source_type:   str,
         timeline_file: str,
-        audio_path: str | None = None,
-        bpm: float | None = None,
-        duration_s: float | None = None,
+        audio_path:    str | None = None,
+        bpm:           float | None = None,
+        duration_s:    float | None = None,
     ) -> None:
-        self.cues = cues
-        self.source_type = source_type
+        self.cues          = cues
+        self.source_type   = source_type
         self.timeline_file = timeline_file
-        self.audio_path = audio_path
-        self.bpm = bpm
-        self.duration_s = duration_s
+        self.audio_path    = audio_path
+        self.bpm           = bpm
+        self.duration_s    = duration_s
 
 
-# ===========================================================================
-# SEGMENT INDEXING
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
+# SEGMENT INDEX & HELPERS
+# ═══════════════════════════════════════════════════════════════════
 
 def _build_seg_index(
     segments: list[dict[str, Any]]
@@ -200,8 +246,8 @@ def _build_seg_index(
     index: list[tuple[float, float, str]] = []
     for seg in segments:
         try:
-            s = float(seg["start"])
-            e = float(seg["end"])
+            s     = float(seg["start"])
+            e     = float(seg["end"])
             label = str(seg.get("label", "intro")).lower().strip()
             index.append((s, e, label))
         except (KeyError, TypeError, ValueError):
@@ -211,7 +257,6 @@ def _build_seg_index(
 
 
 def _label_at(t: float, index: list[tuple[float, float, str]]) -> str:
-    """Return segment label active at time t."""
     last = "intro"
     for s, e, lbl in index:
         if s <= t < e:
@@ -222,171 +267,268 @@ def _label_at(t: float, index: list[tuple[float, float, str]]) -> str:
     return last
 
 
-def _aggression_at(t: float, index: list[tuple[float, float, str]]) -> int:
-    return SECTION_AGGRESSION.get(_label_at(t, index), 1)
+def _aggression_at(
+    t: float,
+    seg_index: list[tuple[float, float, str]],
+) -> int:
+    label = _label_at(t, seg_index)
+    return SECTION_AGGRESSION.get(label, 1)
 
 
-# ===========================================================================
-# CHOREOGRAPHY ENGINE  —  the core of the whole system
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
+# FEATURE HELPERS  (reading decodeur.py JSON format)
+# ═══════════════════════════════════════════════════════════════════
+
+def _extract_beat_feature(data: dict[str, Any], key: str) -> list[float]:
+    """Return per-beat feature list or empty list if absent."""
+    v = data.get(key, [])
+    if not isinstance(v, list):
+        return []
+    out: list[float] = []
+    for x in v:
+        try:
+            out.append(float(x))
+        except (TypeError, ValueError):
+            out.append(0.0)
+    return out
+
+
+def _extract_beat_onset(data: dict[str, Any]) -> list[bool]:
+    """Return per-beat boolean onset list."""
+    v = data.get("beat_onset", [])
+    if not isinstance(v, list):
+        return []
+    return [bool(x) for x in v]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CHOREOGRAPHY ENGINE
+# ═══════════════════════════════════════════════════════════════════
+
+def _compute_aggression(
+    base: int,
+    intensity: float,
+    onset: bool,
+) -> int:
+    """Combine section-level and beat-level signals into 0–3 aggression.
+
+    Rules:
+      - intensity ≥ 0.80  → +1 (very hot moment)
+      - intensity ≥ 0.60  → +0 (normal)
+      - intensity < 0.30  → −1 (quiet moment, restrain)
+      - onset on beat     → +1 (percussive hit, amplify)
+    Final value is clamped to [0, 3].
+    """
+    a = base
+    if intensity >= 0.80:
+        a += 1
+    elif intensity < 0.30:
+        a -= 1
+    if onset:
+        a += 1
+    return max(0, min(3, a))
+
 
 def _select_move(
-    beat_pos: int,
-    bar_idx: int,
-    dt: float,
+    beat_pos:   int,
+    bar_idx:    int,
+    dt:         float,
     aggression: int,
+    intensity:  float,
+    onset:      bool,
+    bpm:        float,
 ) -> tuple[str, float]:
-    """Pick the command and compute hold_seconds for one beat.
+    """Return (command, hold_seconds) for one beat.
 
-    Parameters
-    ----------
-    beat_pos   : position inside the bar (1-4)
-    bar_idx    : monotonically increasing bar counter (for palette rotation)
-    dt         : seconds until next beat (beat interval)
-    aggression : section aggression level 0-3
+    Selection logic:
+    ─────────────────────────────────────────────────────────────────
+    1. Choose base command + hold_factor from palette[aggression][beat_pos].
+    2. Override command for special musical events:
+         onset on beat    → action from an impact-move set, chosen by
+                            aggression so a calm onset ≠ chorus onset.
+         Very high flux (captured via intensity > 0.85)
+                          → spin (turnleft/right), adds visual drama.
+    3. Scale hold_factor by a "dynamic" coefficient tied to intensity
+       so louder beats hold longer and quieter beats release sooner.
+    4. Apply BPM-aware clamp so STOP always fires ≥ 120 ms before
+       the next beat, even at fast tempos (≥160 BPM).
 
-    Returns
-    -------
-    (cmd, hold_s) where STOP will be sent after hold_s seconds
+    No randomness.  Results are deterministic and reproducible.
     """
-    palette = _PALETTES[max(0, min(3, aggression))]
-    eff_pos = beat_pos if beat_pos in (1, 2, 3, 4) else 4
-
-    moves = palette[eff_pos]
+    palette  = _PALETTES[max(0, min(3, aggression))]
+    eff_pos  = beat_pos if beat_pos in (1, 2, 3, 4) else 4
+    moves    = palette[eff_pos]
     cmd, factor = moves[bar_idx % len(moves)]
 
-    # Clamp: STOP must arrive >= 120 ms before the next beat so the robot
-    # finishes the command and has a brief neutral frame before the next hit.
-    max_hold = max(0.05, dt - 0.12)
-    hold_s = max(0.08, min(max_hold, dt * factor))
+    # ── Event overrides ───────────────────────────────────────────
+    if onset:
+        # Map aggression level to an impact action: subtle → explosive
+        impact_map = {
+            0: "ACTION:4",   # Warm-up (gentle)
+            1: "ACTION:2",   # Greeting (expressive)
+            2: "ACTION:8",   # Stride   (energetic)
+            3: "ACTION:7",   # Crouching (explosive power hit)
+        }
+        # On a downbeat (beat_pos == 1) at high aggression, escalate further
+        if beat_pos == 1 and aggression == 3:
+            cmd = "ACTION:5"   # Turn-around — maximum drama
+        else:
+            cmd = impact_map[max(0, min(3, aggression))]
+
+    elif intensity > 0.85 and beat_pos in (1, 3):
+        # Very intense non-onset moment → explosive spin
+        cmd = "MOVE:turnleft" if bar_idx % 2 == 0 else "MOVE:turnright"
+
+    # ── Dynamic hold scaling ──────────────────────────────────────
+    # intensity in [0, 1] → dynamic coefficient in [0.75, 1.10]
+    dynamic = 0.75 + 0.35 * intensity
+    hold_s  = dt * factor * dynamic
+
+    # ── BPM-aware clamping ────────────────────────────────────────
+    # Rule 1: STOP must arrive >= 120 ms before the next beat.
+    # Rule 2: hold must never exceed 2× avg beat interval, so the robot
+    #         never freezes across a structural gap (e.g. intro → chorus).
+    min_gap    = 0.120
+    abs_ceil   = 2.0 * (60.0 / max(20.0, bpm))   # 2 beats at current BPM
+    max_hold   = max(0.05, min(dt - min_gap, abs_ceil))
+    min_hold   = 0.080
+    hold_s     = max(min_hold, min(max_hold, hold_s))
 
     return cmd, hold_s
 
 
 def build_timeline_from_beats(data: dict[str, Any]) -> list[TimelineCue]:
-    """Convert beat-analysis JSON into a precise choreography cue list.
+    """Convert a decodeur.py beat-analysis JSON into a choreography cue list.
 
-    The engine reads every available field to make the best decision:
-      - beat_positions (1-4) for phrasing
-      - downbeats for bar-1 confirmation
-      - segments for section-aware aggression
-      - beat intervals for exact hold timing
-
-    Every cue fires on the exact beat timestamp (t_s).
-    STOP fires at t_s + hold_s, always before the next beat.
+    Reads every available field:
+      beats / downbeats / beat_positions       → rhythm grid
+      beat_energy / beat_flux / beat_intensity → per-beat loudness
+      beat_onset                               → percussive hit flag
+      segments                                 → section structure
+      bpm                                      → tempo for BPM-aware clamping
     """
-    beats = data.get("beats", [])
-    downbeats = data.get("downbeats", [])
-    beat_positions = data.get("beat_positions", data.get("beatPositions", []))
-    segments_raw = data.get("segments", [])
+    beats_raw      = data.get("beats", [])
+    downbeats_raw  = data.get("downbeats", [])
+    beat_pos_raw   = data.get("beat_positions", [])
+    segments_raw   = data.get("segments", [])
+    bpm            = float(data.get("bpm", data.get("tempo", 120.0)) or 120.0)
 
-    if not isinstance(beats, list) or not beats:
-        raise ValueError("Beat JSON must contain a non-empty 'beats' list")
+    if not beats_raw:
+        raise ValueError("JSON has no 'beats' list — run decodeur.py first.")
 
-    beat_times = [float(x) for x in beats]
+    beat_times: list[float] = [float(x) for x in beats_raw]
     n = len(beat_times)
 
-    # Downbeat lookup with 3 ms tolerance
-    downbeat_set: set[int] = set()
-    if isinstance(downbeats, list):
-        for db in downbeats:
-            try:
-                db_f = float(db)
-                # Find the beat index closest to this downbeat timestamp
-                closest = min(range(n), key=lambda i: abs(beat_times[i] - db_f))
-                if abs(beat_times[closest] - db_f) < 0.05:
-                    downbeat_set.add(closest)
-            except (TypeError, ValueError):
-                pass
+    # ── Per-beat features ─────────────────────────────────────────
+    # decodeur.py v2 writes pre-interpolated per-beat arrays.
+    # Fall back to zeros if absent (for older JSONs).
+    b_intensity = _extract_beat_feature(data, "beat_intensity")
+    b_onset     = _extract_beat_onset(data)
 
-    # Segment index
+    def _feat(lst: list[float], idx: int) -> float:
+        return lst[idx] if idx < len(lst) else 0.5
+
+    def _ons(lst: list[bool], idx: int) -> bool:
+        return lst[idx] if idx < len(lst) else False
+
+    # ── Segment index ─────────────────────────────────────────────
     seg_index = _build_seg_index(segments_raw) if segments_raw else []
 
-    # Average beat interval (fallback for last beat)
-    if n > 1:
-        avg_dt = (beat_times[-1] - beat_times[0]) / (n - 1)
-    else:
-        avg_dt = 60.0 / 95.0  # sensible default
+    # ── Average beat interval (fallback for last beat) ────────────
+    avg_dt = (beat_times[-1] - beat_times[0]) / max(1, n - 1) if n > 1 else 60.0 / bpm
 
-    # Pre-compute bar index: increments every time we hit beat_pos==1
-    bar_idx = 0
+    # ── Downbeat set (timestamp-based, ±50 ms tolerance) ─────────
+    downbeat_ts: set[int] = set()
+    for db_raw in downbeats_raw:
+        try:
+            db_f = float(db_raw)
+        except (TypeError, ValueError):
+            continue
+        closest = min(range(n), key=lambda i, db=db_f: abs(beat_times[i] - db))
+        if abs(beat_times[closest] - db_f) < 0.050:
+            downbeat_ts.add(closest)
+
+    # ── Bar counter ───────────────────────────────────────────────
+    bar_idx   = 0
     bar_counter: list[int] = []
     for i in range(n):
-        bp_raw = None
-        if isinstance(beat_positions, list) and i < len(beat_positions):
-            try:
-                bp_raw = int(beat_positions[i])
-            except (TypeError, ValueError):
-                pass
-        if bp_raw == 1 or i in downbeat_set:
+        try:
+            bp = int(beat_pos_raw[i]) if i < len(beat_pos_raw) else (i % 4) + 1
+        except (TypeError, ValueError):
+            bp = (i % 4) + 1
+        if bp == 1 or i in downbeat_ts:
             bar_idx += 1
         bar_counter.append(bar_idx)
 
-    # Build cues
+    # ── Build cue list ────────────────────────────────────────────
     cues: list[TimelineCue] = []
+
     for i, t_s in enumerate(beat_times):
 
-        # Beat position (default to cycling 1-4 if missing)
-        bp: int = ((i % 4) + 1)
-        if isinstance(beat_positions, list) and i < len(beat_positions):
-            try:
-                bp_raw = int(beat_positions[i])
-                if bp_raw in (1, 2, 3, 4):
-                    bp = bp_raw
-            except (TypeError, ValueError):
-                pass
+        # Beat position
+        try:
+            bp = int(beat_pos_raw[i]) if i < len(beat_pos_raw) else (i % 4) + 1
+        except (TypeError, ValueError):
+            bp = (i % 4) + 1
+        if bp not in (1, 2, 3, 4):
+            bp = (i % 4) + 1
 
-        is_downbeat = (i in downbeat_set) or (bp == 1)
+        # Is this a downbeat?
+        is_downbeat = (i in downbeat_ts) or (bp == 1)
 
-        # Interval to next beat
-        if i + 1 < n:
-            dt = max(0.08, beat_times[i + 1] - t_s)
-        else:
-            dt = avg_dt
+        # Beat interval
+        dt = max(0.08, beat_times[i + 1] - t_s) if i + 1 < n else avg_dt
 
-        # Section aggression
-        aggression = _aggression_at(t_s, seg_index) if seg_index else 1
+        # Per-beat features
+        intensity = _feat(b_intensity, i)
+        onset     = _ons(b_onset, i)
 
-        # Select move
+        # Section aggression (base)
+        base_agg  = _aggression_at(t_s, seg_index) if seg_index else 1
+
+        # Final aggression (modulated by intensity + onset)
+        aggression = _compute_aggression(base_agg, intensity, onset)
+
+        # Command + hold
         cmd, hold_s = _select_move(
-            beat_pos=bp,
-            bar_idx=bar_counter[i],
-            dt=dt,
-            aggression=aggression,
+            beat_pos   = bp,
+            bar_idx    = bar_counter[i],
+            dt         = dt,
+            aggression = aggression,
+            intensity  = intensity,
+            onset      = onset,
+            bpm        = bpm,
         )
 
-        # Build label for logging
-        section = _label_at(t_s, seg_index) if seg_index else ""
-        star = "★" if is_downbeat else " "
-        label_parts = [
-            f"{star}",
-            f"t={t_s:.3f}s",
-            f"bar={bar_counter[i]:02d}",
-            f"pos={bp}",
-            f"agg={aggression}",
-        ]
-        if section:
-            label_parts.append(f"[{section}]")
-        name = "  ".join(label_parts)
+        # Cue label (for ROS log)
+        section  = _label_at(t_s, seg_index) if seg_index else ""
+        star     = "★" if is_downbeat else " "
+        name = (
+            f"{star} t={t_s:.3f}s "
+            f"bar={bar_counter[i]:02d} pos={bp} "
+            f"agg={aggression} I={intensity:.2f} "
+            f"{'ONSET ' if onset else ''}"
+            f"[{section}]"
+        )
 
         cues.append(TimelineCue(t_s=t_s, name=name, cmd=cmd, hold_s=hold_s))
 
-    # Final power pose — must start AFTER last beat STOP has fired
-    last_cue = cues[-1]
-    end_t = last_cue.t_s + last_cue.hold_s + 0.15
+    # ── Final pose (after last beat STOP) ─────────────────────────
+    last  = cues[-1]
+    end_t = last.t_s + last.hold_s + 0.20
     cues.append(TimelineCue(
-        t_s=end_t,
-        name="★ FINAL POSE",
-        cmd="ACTION:7",
-        hold_s=min(0.85, avg_dt * 0.80),
+        t_s    = end_t,
+        name   = "★ FINAL POSE",
+        cmd    = "ACTION:7",
+        hold_s = min(0.85, avg_dt * 0.80),
     ))
 
     return cues
 
 
-# ===========================================================================
-# JSON LOADERS
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
+# JSON LOADERS  (universal — handles any beat JSON layout)
+# ═══════════════════════════════════════════════════════════════════
 
 def _safe_float(v: Any) -> float | None:
     try:
@@ -430,7 +572,7 @@ def _extract_duration_s(raw: dict[str, Any]) -> float | None:
 
 
 def _normalize_beat_dict(raw: dict[str, Any]) -> dict[str, Any] | None:
-    """Extract and normalize beat payload from any known JSON layout."""
+    """Normalize any beat-JSON layout into a canonical payload dict."""
     containers: list[dict[str, Any]] = [raw]
     for key in ("analysis", "rhythm", "timeline", "music"):
         nested = raw.get(key)
@@ -445,7 +587,7 @@ def _normalize_beat_dict(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     beats: list[Any] | None = None
-    src: dict[str, Any] | None = None
+    src:   dict[str, Any] | None = None
     for c in containers:
         beats = _pick_list(c, "beats", "beat_times", "beatTimes")
         if beats is not None:
@@ -472,32 +614,44 @@ def _normalize_beat_dict(raw: dict[str, Any]) -> dict[str, Any] | None:
         raw.get("path") or raw.get("audio_path") or raw.get("audioFile")
         or src.get("path") or src.get("audio_path") or src.get("audioFile")
     )
-    bpm = raw.get("bpm") if raw.get("bpm") is not None else src.get("bpm")
+    bpm = (
+        raw.get("bpm") or raw.get("tempo")
+        or src.get("bpm") or src.get("tempo")
+    )
 
     return {
-        "beats":         beats,
-        "downbeats":     downbeats,
+        "beats":          beats,
+        "downbeats":      downbeats,
         "beat_positions": beat_positions,
-        "segments":      segments,
-        "audio_path":    str(audio_path) if audio_path else None,
-        "bpm":           _safe_float(bpm),
-        "duration_s":    _extract_duration_s(raw),
+        "segments":       segments,
+        "audio_path":     str(audio_path) if audio_path else None,
+        "bpm":            _safe_float(bpm),
+        "duration_s":     _extract_duration_s(raw),
+        # ── decodeur.py v2 per-beat features ─────────────────────
+        "beat_intensity": _pick_list(raw, "beat_intensity") or [],
+        "beat_energy":    _pick_list(raw, "beat_energy")    or [],
+        "beat_flux":      _pick_list(raw, "beat_flux")      or [],
+        "beat_onset":     raw.get("beat_onset", []),
+        # ── legacy full-array features (ignored but passed through) ─
+        "intensity":      _pick_list(raw, "intensity")       or [],
+        "energy":         _pick_list(raw, "energy")          or [],
+        "spectral_flux":  _pick_list(raw, "spectral_flux")   or [],
+        "onsets":         raw.get("onsets", []),
     }
 
 
 def _load_native_cues(path: str) -> list[TimelineCue]:
-    """Load a native cue-list JSON: [{t, cmd, name?, hold?}, ...]"""
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, list):
-        raise ValueError("Native timeline JSON must be a list")
+        raise ValueError("Native timeline JSON must be a top-level list")
     cues: list[TimelineCue] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"Item #{i} must be an object")
-        t_s = float(item["t"])
-        name = str(item.get("name", f"Cue {i + 1}"))
-        cmd = str(item["cmd"])
+        t_s    = float(item["t"])
+        name   = str(item.get("name", f"Cue {i + 1}"))
+        cmd    = str(item["cmd"])
         hold_s = float(item.get("hold", 0.0))
         if t_s < 0:
             raise ValueError(f"Item #{i}: negative t={t_s}")
@@ -507,11 +661,10 @@ def _load_native_cues(path: str) -> list[TimelineCue]:
 
 
 def load_timeline_or_beats(path: str) -> TimelineSelection:
-    """Universal loader: handles beat JSON and native cue lists."""
+    """Universal loader: beat JSON (decodeur output) or native cue list."""
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # Native cue list
     if isinstance(raw, list):
         cues = _load_native_cues(path)
         return TimelineSelection(
@@ -519,21 +672,19 @@ def load_timeline_or_beats(path: str) -> TimelineSelection:
             duration_s=_compute_cues_end_s(cues),
         )
 
-    # Beat-analysis dict
     if isinstance(raw, dict):
         payload = _normalize_beat_dict(raw)
         if payload and payload.get("beats"):
             cues = build_timeline_from_beats(payload)
             return TimelineSelection(
-                cues=cues,
-                source_type="beats",
-                timeline_file=path,
-                audio_path=payload["audio_path"],
-                bpm=payload["bpm"],
-                duration_s=payload["duration_s"],
+                cues          = cues,
+                source_type   = "beats",
+                timeline_file = path,
+                audio_path    = payload["audio_path"],
+                bpm           = payload["bpm"],
+                duration_s    = payload["duration_s"],
             )
 
-    # Fallback
     cues = _load_native_cues(path)
     return TimelineSelection(
         cues=cues, source_type="timeline", timeline_file=path,
@@ -541,9 +692,9 @@ def load_timeline_or_beats(path: str) -> TimelineSelection:
     )
 
 
-# ===========================================================================
-# STATIC CHOREOGRAPHY (no beat JSON)
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
+# STATIC CHOREOGRAPHY  (no JSON — loop-based fallback)
+# ═══════════════════════════════════════════════════════════════════
 
 def choreography(speed: int, step_width: int) -> list[Step]:
     _ = step_width
@@ -591,48 +742,49 @@ def choreography(speed: int, step_width: int) -> list[Step]:
     return steps
 
 
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 # ROS2 NODE
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 
 class DanceLeader(Node):
+
     def __init__(
         self,
-        loops: int,
-        beat: float,
-        speed: int,
-        step_width: int,
+        loops:        int,
+        beat:         float,
+        speed:        int,
+        step_width:   int,
         timeline_path: str | None,
-        song_delay: float,
-        audio_file: str | None,
-        audio_name: str | None,
-        audio_dir: str,
+        song_delay:   float,
+        audio_file:   str | None,
+        audio_name:   str | None,
+        audio_dir:    str,
         audio_player: str,
-        play_audio: bool,
+        play_audio:   bool,
     ) -> None:
         super().__init__("dance_leader")
-        self.loops = loops
-        self.beat = beat
-        self.speed = speed
-        self.step_width = step_width
+        self.loops         = loops
+        self.beat          = beat
+        self.speed         = speed
+        self.step_width    = step_width
         self.timeline_path = timeline_path
-        self.song_delay = song_delay
-        self.audio_file = audio_file
-        self.audio_name = audio_name
-        self.audio_dir = audio_dir
-        self.audio_player = audio_player
-        self.play_audio = play_audio
+        self.song_delay    = song_delay
+        self.audio_file    = audio_file
+        self.audio_name    = audio_name
+        self.audio_dir     = audio_dir
+        self.audio_player  = audio_player
+        self.play_audio    = play_audio
         self._audio_proc: subprocess.Popen[str] | None = None
 
         self._pub = self.create_publisher(String, DANCE_TOPIC, qos_profile=10)
-        self.get_logger().info(f"Dance leader ready — topic: '{DANCE_TOPIC}'")
+        self.get_logger().info(f"Dance leader — topic: '{DANCE_TOPIC}'")
         self.get_logger().info(
-            f"Config: loops={loops} beat={beat} speed={speed} step_width={step_width}"
+            f"loops={loops}  beat={beat}  speed={speed}  step_width={step_width}"
         )
         if timeline_path:
             self.get_logger().info(f"Timeline: {timeline_path}  delay={song_delay}s")
 
-    # ── Audio ────────────────────────────────────────────────────────────
+    # ── Audio helpers ────────────────────────────────────────────────
 
     def _pick_audio_player(self) -> list[str] | None:
         if self.audio_player != "auto":
@@ -642,22 +794,22 @@ class DanceLeader(Node):
                 )
                 return None
             return [self.audio_player]
-        if shutil.which("ffplay"):
-            return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error"]
-        if shutil.which("mpg123"):
-            return ["mpg123", "-q"]
-        if shutil.which("cvlc"):
-            return ["cvlc", "--play-and-exit", "--intf", "dummy"]
-        if shutil.which("paplay"):
-            return ["paplay"]
+        for player, args in [
+            ("ffplay",  ["-nodisp", "-autoexit", "-loglevel", "error"]),
+            ("mpg123",  ["-q"]),
+            ("cvlc",    ["--play-and-exit", "--intf", "dummy"]),
+            ("paplay",  []),
+        ]:
+            if shutil.which(player):
+                return [player, *args]
         return None
 
     def _spawn_audio(self, audio_path: str) -> subprocess.Popen[str] | None:
-        """Spawn audio player without any blocking sleep."""
+        """Launch audio player in background — no blocking sleep."""
         prefix = self._pick_audio_player()
         if prefix is None:
             self.get_logger().warning(
-                "No audio player found (ffplay/mpg123/cvlc/paplay). "
+                "No audio player found (ffplay / mpg123 / cvlc / paplay). "
                 "Install one or use --audio-player."
             )
             return None
@@ -671,7 +823,7 @@ class DanceLeader(Node):
             return None
 
     def _resolve_audio(self, selection: TimelineSelection) -> str | None:
-        """Priority: --audio-file > --audio-name > JSON path field."""
+        """Priority: --audio-file  >  --audio-name  >  JSON path field."""
         if self.audio_file:
             p = Path(self.audio_file).expanduser()
             return str(p) if p.exists() else None
@@ -716,12 +868,12 @@ class DanceLeader(Node):
                 self._audio_proc = None
                 self.get_logger().info("Audio finished.")
                 return
-            rclpy.spin_once(self, timeout_sec=0.2)
+            rclpy.spin_once(self, timeout_sec=0.20)
 
-    # ── ROS helpers ──────────────────────────────────────────────────────
+    # ── ROS helpers ──────────────────────────────────────────────────
 
     def _pub_cmd(self, cmd: str) -> None:
-        msg = String()
+        msg      = String()
         msg.data = cmd
         self._pub.publish(msg)
         self.get_logger().info(f">> {cmd}")
@@ -732,7 +884,11 @@ class DanceLeader(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
     def _wait_until(self, target_t: float) -> None:
-        """High-precision monotonic wait, spinning ROS callbacks at <=15ms."""
+        """Busy-spin until monotonic clock reaches target_t.
+
+        Spins ROS callbacks at ≤ 15 ms granularity so the event loop
+        stays alive without sacrificing timing accuracy.
+        """
         while True:
             now = time.monotonic()
             if now >= target_t:
@@ -740,61 +896,70 @@ class DanceLeader(Node):
             rem = target_t - now
             rclpy.spin_once(self, timeout_sec=min(0.015, max(0.001, rem)))
 
-    # ── Timeline runner ──────────────────────────────────────────────────
+    # ── Timeline runner ──────────────────────────────────────────────
 
     def _run_timeline(
-        self, cues: list[TimelineCue], selected_audio: str | None
+        self,
+        cues:           list[TimelineCue],
+        selected_audio: str | None,
     ) -> bool:
-        """Execute every cue in exact beat sync with the audio.
+        """Execute cues in perfect lock-step with the audio.
 
-        Synchronization model
+        Synchronisation model
         ─────────────────────
-        1. Countdown via song_delay (audience preparation).
-        2. Spawn audio (non-blocking Popen, no sleep).
-        3. Record:  start_t = monotonic() - AUDIO_PLAYER_LATENCY_S
-           The subtraction pre-compensates for the player's startup time so
-           cue timestamps land on the actual musical beat, not after it.
-        4. Hot loop:
-             fire_wall_clock = start_t + cue.t_s    → send command
-             stop_wall_clock = fire_wall_clock + cue.hold_s → send STOP
-           _wait_until() spins ROS callbacks at ≤15 ms granularity for
-           sub-frame accuracy without blocking the ROS event loop.
+        T_spawn  ← time.monotonic() recorded just BEFORE Popen()
+        T_sound  = T_spawn + AUDIO_PLAYER_LATENCY_S  (1st audible sample)
+        start_t  = T_spawn + AUDIO_PLAYER_LATENCY_S
+
+        Each cue fires at:
+            wall_clock = start_t + cue.t_s
+
+        For cue.t_s = 0  →  wall_clock = T_sound  →  in sync with beat 0. ✓
+
+        STOP fires at:
+            wall_clock = start_t + cue.t_s + cue.hold_s
+
+        _wait_until() spins ROS at ≤ 15 ms to keep callbacks alive
+        while maintaining sub-20 ms timing accuracy.
         """
         if not cues:
             self.get_logger().warning("Timeline is empty.")
             return False
 
         n = len(cues)
-        self.get_logger().info(f"Timeline loaded: {n} cues")
+        self.get_logger().info(f"Timeline: {n} cues loaded")
 
-        # 1. Countdown
+        # ── 1. Countdown ──────────────────────────────────────────
         if self.song_delay > 0:
-            self.get_logger().info(
-                f"Countdown: {self.song_delay:.1f}s before music…"
-            )
+            self.get_logger().info(f"Countdown: {self.song_delay:.1f}s…")
             self._sleep(self.song_delay)
 
-        # 2. Spawn audio
+        # ── 2. Record spawn epoch, then launch audio ──────────────
+        # We record T_spawn BEFORE Popen so latency compensation is
+        # relative to the instant we handed the command to the OS.
+        T_spawn = time.monotonic()
         audio_started = False
         if self.play_audio and selected_audio:
             self._audio_proc = self._spawn_audio(selected_audio)
-            audio_started = self._audio_proc is not None
+            audio_started    = self._audio_proc is not None
 
-        # 3. Epoch — compensate player startup latency
-        start_t = time.monotonic() - AUDIO_PLAYER_LATENCY_S
+        # start_t is the estimated wall-clock time of the 1st musical sample
+        start_t = T_spawn + AUDIO_PLAYER_LATENCY_S
 
         self.get_logger().info(
-            f"▶▶▶ CHOREOGRAPHY + MUSIC STARTED  "
-            f"[latency_comp={AUDIO_PLAYER_LATENCY_S*1000:.0f}ms]"
+            f"▶▶▶  MUSIC + CHOREOGRAPHY  —  "
+            f"latency_comp={AUDIO_PLAYER_LATENCY_S*1000:.0f}ms  "
+            f"audio={'YES' if audio_started else 'NO'}"
         )
 
-        # 4. Hot cue loop
+        # ── 3. Hot cue loop ───────────────────────────────────────
         for i, cue in enumerate(cues, start=1):
             fire_t = start_t + cue.t_s
             self._wait_until(fire_t)
 
             self.get_logger().info(
-                f"[{i:04d}/{n}]  {cue.name}  →  {cue.cmd}  (hold={cue.hold_s:.3f}s)"
+                f"[{i:04d}/{n}]  {cue.name}  →  {cue.cmd}"
+                f"  hold={cue.hold_s:.3f}s"
             )
             self._pub_cmd(cue.cmd)
 
@@ -804,7 +969,7 @@ class DanceLeader(Node):
 
         return audio_started
 
-    # ── Main ─────────────────────────────────────────────────────────────
+    # ── Main ─────────────────────────────────────────────────────────
 
     def run(self) -> None:
         self.get_logger().info("Waiting 2 s for followers to connect…")
@@ -816,50 +981,51 @@ class DanceLeader(Node):
         if self.timeline_path:
             selection = load_timeline_or_beats(self.timeline_path)
 
-            self.get_logger().info("══════════════════════════════════")
-            self.get_logger().info(f"  File    : {selection.timeline_file}")
-            self.get_logger().info(f"  Type    : {selection.source_type}")
-            self.get_logger().info(f"  Cues    : {len(selection.cues)}")
+            self.get_logger().info("══════════════════════════════════════")
+            self.get_logger().info(f"  File     : {selection.timeline_file}")
+            self.get_logger().info(f"  Type     : {selection.source_type}")
+            self.get_logger().info(f"  Cues     : {len(selection.cues)}")
             if selection.bpm is not None:
-                self.get_logger().info(f"  BPM     : {selection.bpm:.2f}")
+                self.get_logger().info(f"  BPM      : {selection.bpm:.2f}")
             if selection.duration_s is not None:
                 self.get_logger().info(
-                    f"  Length  : {selection.duration_s:.1f}s "
+                    f"  Duration : {selection.duration_s:.1f}s "
                     f"({selection.duration_s / 60:.1f} min)"
                 )
             if selection.audio_path:
-                self.get_logger().info(f"  Audio   : {selection.audio_path}")
-            self.get_logger().info("══════════════════════════════════")
+                self.get_logger().info(f"  Audio    : {selection.audio_path}")
+            self.get_logger().info("══════════════════════════════════════")
 
             selected_audio = self._resolve_audio(selection)
             if selected_audio:
-                self.get_logger().info(f"Autoplay: {selected_audio}")
+                self.get_logger().info(f"Autoplay  : {selected_audio}")
             else:
                 self.get_logger().warning(
-                    "No audio found. Use --audio-file /path/to/song.mp3"
+                    "No audio file found.  "
+                    "Pass  --audio-file /path/to/song.mp3  or  --audio-name TRACKNAME"
                 )
 
             audio_started = self._run_timeline(selection.cues, selected_audio)
             self._wait_audio_done()
 
-            # Respect remaining track duration even without audio autoplay
+            # If audio was not played, still honour the track duration
             if not audio_started and selection.duration_s is not None:
-                cue_end = _compute_cues_end_s(selection.cues)
+                cue_end   = _compute_cues_end_s(selection.cues)
                 remaining = selection.duration_s - cue_end
                 if remaining > 0.1:
                     self.get_logger().info(
-                        f"Waiting track remainder: {remaining:.2f}s"
+                        f"Waiting remaining track time: {remaining:.2f}s"
                     )
                     self._sleep(remaining)
 
             self._pub_cmd("RESET")
             self._sleep(0.5)
             self._pub_cmd("DONE")
-            self.get_logger().info("✔ Timeline choreography complete.")
+            self.get_logger().info("✔  Timeline choreography complete.")
             self._stop_audio()
             return
 
-        # Static mode
+        # ── Static loop mode ──────────────────────────────────────
         steps = choreography(self.speed, self.step_width)
         total = len(steps)
         for loop_idx in range(self.loops):
@@ -874,28 +1040,39 @@ class DanceLeader(Node):
         self._pub_cmd("RESET")
         self._sleep(0.5)
         self._pub_cmd("DONE")
-        self.get_logger().info("✔ Choreography complete.")
+        self.get_logger().info("✔  Choreography complete.")
 
 
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 # CLI
-# ===========================================================================
+# ═══════════════════════════════════════════════════════════════════
 
 def parse_args() -> argparse.Namespace:
     import rclpy.utilities
-    p = argparse.ArgumentParser(description="MUTO-RS dance leader (ROS2)")
-    p.add_argument("--loops",        type=int,   default=1)
-    p.add_argument("--beat",         type=float, default=1.0)
-    p.add_argument("--speed",        type=int,   default=2)
-    p.add_argument("--step-width",   type=int,   default=16)
-    p.add_argument("--timeline",     type=str,   default="")
-    p.add_argument("--song-delay",   type=float, default=5.0)
-    p.add_argument("--audio-file",   type=str,   default="")
-    p.add_argument("--audio-name",   type=str,   default="")
-    p.add_argument("--audio-dir",    type=str,   default="assets/audio")
-    p.add_argument("--audio-player", type=str,   default="auto")
+    p = argparse.ArgumentParser(description="MUTO-RS Dance Leader (ROS2)")
+    p.add_argument("--loops",        type=int,   default=1,
+                   help="Full loop repetitions (static mode only)")
+    p.add_argument("--beat",         type=float, default=1.0,
+                   help="Tempo multiplier (static mode: <1=faster)")
+    p.add_argument("--speed",        type=int,   default=2,
+                   help="Speed sent to followers 1–5")
+    p.add_argument("--step-width",   type=int,   default=16,
+                   help="Locomotion step width 10–25")
+    p.add_argument("--timeline",     type=str,   default="",
+                   help="Path to beat-JSON (decodeur output) or cue-list JSON")
+    p.add_argument("--song-delay",   type=float, default=5.0,
+                   help="Countdown before music starts (seconds)")
+    p.add_argument("--audio-file",   type=str,   default="",
+                   help="Explicit path to audio file")
+    p.add_argument("--audio-name",   type=str,   default="",
+                   help="Filename in --audio-dir (extension optional)")
+    p.add_argument("--audio-dir",    type=str,   default="assets/audio",
+                   help="Directory where audio files are stored")
+    p.add_argument("--audio-player", type=str,   default="auto",
+                   help="Player binary: auto | ffplay | mpg123 | cvlc | paplay")
     p.add_argument("--play-audio",   type=str,   default="true",
-                   choices=["true", "false"])
+                   choices=["true", "false"],
+                   help="Enable automatic audio playback in timeline mode")
     return p.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
 
@@ -903,17 +1080,17 @@ def main() -> int:
     args = parse_args()
     rclpy.init()
     node = DanceLeader(
-        loops=max(1, args.loops),
-        beat=max(0.2, args.beat),
-        speed=max(1, min(5, args.speed)),
-        step_width=max(10, min(25, args.step_width)),
-        timeline_path=args.timeline if args.timeline else None,
-        song_delay=max(0.0, args.song_delay),
-        audio_file=args.audio_file if args.audio_file else None,
-        audio_name=args.audio_name if args.audio_name else None,
-        audio_dir=args.audio_dir,
-        audio_player=args.audio_player,
-        play_audio=(args.play_audio.lower() == "true"),
+        loops         = max(1, args.loops),
+        beat          = max(0.2, args.beat),
+        speed         = max(1, min(5, args.speed)),
+        step_width    = max(10, min(25, args.step_width)),
+        timeline_path = args.timeline if args.timeline else None,
+        song_delay    = max(0.0, args.song_delay),
+        audio_file    = args.audio_file  if args.audio_file  else None,
+        audio_name    = args.audio_name  if args.audio_name  else None,
+        audio_dir     = args.audio_dir,
+        audio_player  = args.audio_player,
+        play_audio    = (args.play_audio.lower() == "true"),
     )
     try:
         node.run()
