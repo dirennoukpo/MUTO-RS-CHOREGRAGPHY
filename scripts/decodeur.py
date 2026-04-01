@@ -1,26 +1,49 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║         PRO AUDIO → DANCE JSON GENERATOR  v2.0                  ║
+║         GÉNÉRATEUR AUDIO → JSON DANSE  v2.0                     ║
 ║                                                                  ║
-║  Pipeline:                                                       ║
-║    1. HPSS separation (harmonic / percussive)                    ║
-║    2. Beat tracking  (tightness=100, percussive signal)          ║
-║    3. Downbeat + beat-position estimation (4/4 assumed)          ║
-║    4. Onset detection  (percussive, filtered)                    ║
-║    5. RMS energy  (smoothed, normalised)                         ║
-║    6. Spectral flux  (smoothed, normalised)                      ║
-║    7. INTENSITY = 0.5*energy + 0.5*flux  (master aggression key) ║
-║    8. Structural segmentation via MFCC agglomerative clustering  ║
-║    9. Automatic section labelling based on intensity quartiles:  ║
-║         intro / verse / chorus / outro                           ║
-║   10. All features serialised to a single JSON consumed by       ║
-║       dance_leader.py                                            ║
+║  Pipeline de traitement :                                        ║
+║    1. Séparation HPSS (harmonique / percussive)                  ║
+║    2. Suivi de battements (tightness=100, signal percussif)      ║
+║    3. Estimation downbeat + position de battement (4/4 assumé)   ║
+║    4. Détection d'onsets (percussif, filtré)                     ║
+║    5. Énergie RMS (lissée, normalisée)                           ║
+║    6. Flux spectral (lissé, normalisé)                           ║
+║    7. INTENSITÉ = 0.5*énergie + 0.5*flux (clé d'agressivité)     ║
+║    8. Segmentation structurelle via clustering agglomératif MFCC║
+║    9. Étiquetage automatique des sections basé sur quartiles     ║
+║         d'intensité : intro / verse / chorus / outro             ║
+║   10. Toutes les features sérialisées dans un JSON unique       ║
+║       consommé par dance_leader.py                               ║
 ║                                                                  ║
-║  Usage:                                                          ║
+║  Utilisation :                                                   ║
 ║    python3 decodeur.py --input song.mp3 --output song_beats.json ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
+
+# ==============================================================================
+# DÉCODEUR AUDIO POUR GÉNÉRATION DE TIMELINE MUSICALE
+#
+# Ce script analyse en profondeur les fichiers audio MP3 pour extraire
+# les caractéristiques temporelles nécessaires à la chorégraphie robotique.
+# Il transforme la musique en données structurées exploitables par le système
+# de danse synchronisée MUTO-RS.
+#
+# Pipeline complet d'analyse audio :
+# 1. Séparation harmonique/percussive pour focus sur le rythme
+# 2. Détection précise des battements et downbeats
+# 3. Extraction d'onsets pour les changements rythmiques
+# 4. Calcul de features d'énergie et flux spectral
+# 5. Segmentation automatique en sections musicales
+# 6. Export JSON pour intégration avec dance_leader.py
+#
+# Technologies utilisées :
+# - librosa : Traitement audio général
+# - madmom : Suivi de battements haute précision
+# - essentia : Analyse spectrale optimisée
+# - scikit-learn : Clustering pour segmentation
+# ==============================================================================
 
 from __future__ import annotations
 
@@ -34,15 +57,34 @@ import librosa
 
 
 # ═══════════════════════════════════════════════════════════════════
-# UTILS
+# UTILITAIRES
 # ═══════════════════════════════════════════════════════════════════
 
 def _normalize(x: np.ndarray) -> np.ndarray:
+    """
+    Normalise un tableau numpy entre 0 et 1.
+    
+    Args:
+        x: Tableau numpy à normaliser
+        
+    Returns:
+        Tableau normalisé
+    """
     mn, mx = x.min(), x.max()
     return (x - mn) / (mx - mn + 1e-9)
 
 
 def _smooth(x: np.ndarray, window: int = 5) -> np.ndarray:
+    """
+    Applique un lissage par moyenne mobile.
+    
+    Args:
+        x: Signal à lisser
+        window: Taille de la fenêtre de lissage
+        
+    Returns:
+        Signal lissé
+    """
     kernel = np.ones(window) / window
     return np.convolve(x, kernel, mode="same")
 

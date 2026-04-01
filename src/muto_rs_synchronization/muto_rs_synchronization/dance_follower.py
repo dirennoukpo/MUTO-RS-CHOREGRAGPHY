@@ -1,24 +1,40 @@
 #!/usr/bin/env python3
-"""ROS2 dance follower node for MUTO-RS multi-robot synchronization.
+"""
+Nœud suiveur de danse ROS2 pour synchronisation multi-robots MUTO-RS.
 
-This node runs ON EACH ROBOT (has MutoLib + ROS2 in the factory Docker image).
-It subscribes to /dance_cmd and executes each command via MutoLib.
+Ce nœud s'exécute SUR CHAQUE ROBOT (avec MutoLib + ROS2 dans l'image Docker usine).
+Il s'abonne à /dance_cmd et exécute chaque commande via MutoLib.
 
-Protocol (same as dance_leader.py):
-  SPEED:<int>         → set speed level
-  ACTION:<int>        → execute built-in action (1-8)
+Protocole (identique à dance_leader.py) :
+  SPEED:<int>         → définir le niveau de vitesse
+  ACTION:<int>        → exécuter l'action intégrée (1-8)
   MOVE:<direction>    → forward | back | left | right | turnleft | turnright
-  STOP                → stop movement
-  RESET               → reset to neutral stance
-  DONE                → shutdown this node cleanly
+  STOP                → arrêter le mouvement
+  RESET               → réinitialiser à la position neutre
+  DONE                → arrêter ce nœud proprement
 
-Usage on robot (inside Muto Docker container):
-  # 1. Make sure ROS_DOMAIN_ID matches the leader machine:
+Utilisation sur le robot (dans le conteneur Docker Muto) :
+  # 1. S'assurer que ROS_DOMAIN_ID correspond à la machine leader :
   export ROS_DOMAIN_ID=42
-  # 2. Run:
+  # 2. Exécuter :
   python3 dance_follower.py
   python3 dance_follower.py --step-width 16 --dry-run
 """
+
+# ==============================================================================
+# MODULE SUIVEUR DE DANSE POUR MUTO-RS
+#
+# Ce module est l'exécutant côté robot dans l'architecture leader-follower.
+# Il reçoit les commandes synchronisées du leader via ROS 2 et les traduit
+# en actions physiques via MutoLib, assurant une exécution parfaite en rythme.
+#
+# Fonctionnalités clés :
+# - Abonnement aux commandes de danse synchronisées
+# - Traduction des commandes en appels MutoLib
+# - Mode dry-run pour simulation sans hardware
+# - Gestion adaptative de la largeur des pas
+# - Arrêt propre sur commande DONE
+# ==============================================================================
 
 from __future__ import annotations
 
@@ -34,9 +50,21 @@ DANCE_TOPIC = "/dance_cmd"
 
 
 class RobotController:
-    """Wrap MutoLib calls with optional dry-run."""
-
+    """
+    Wrapper pour les appels MutoLib avec mode dry-run optionnel.
+    
+    Cette classe abstrait l'interface hardware du robot Muto,
+    permettant de tester la logique sans matériel physique.
+    """
+    
     def __init__(self, dry_run: bool, step_width: int) -> None:
+        """
+        Initialise le contrôleur robot.
+        
+        Args:
+            dry_run: Si True, simule les commandes sans hardware
+            step_width: Largeur des pas (clampée entre 10-25)
+        """
         self.dry_run = dry_run
         self.step_width = max(10, min(25, step_width))
         self._bot = None
@@ -46,7 +74,7 @@ class RobotController:
             try:
                 from MutoLib import Muto  # type: ignore
                 self._bot = Muto()
-                print("[follower] MutoLib connected OK")
+                print("[follower] MutoLib connecté OK")
             except Exception as exc:
                 print(f"[WARN] MutoLib unavailable, switching to dry-run. {exc}")
                 self.dry_run = True

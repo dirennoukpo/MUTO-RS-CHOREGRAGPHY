@@ -3,28 +3,42 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║      MUTO-RS  DANCE LEADER  v3.0  —  ROS2                       ║
 ║                                                                  ║
-║  Publishes real-time dance commands on /dance_cmd so every       ║
-║  follower robot executes the choreography in lock-step with      ║
-║  the music.                                                      ║
+║  Publie des commandes de danse en temps réel sur /dance_cmd     ║
+║  pour que chaque robot suiveur exécute la chorégraphie en       ║
+║  synchronisation parfaite avec la musique.                      ║
 ║                                                                  ║
-║  Protocol (std_msgs/String):                                     ║
-║    SPEED:<1-5>    set locomotion speed                           ║
-║    ACTION:<1-8>   built-in pose/action                           ║
-║      1=Stretch  2=Greeting  3=Retreat  4=Warm_up                 ║
-║      5=Turn_around  6=Say_no  7=Crouching  8=Stride              ║
-║    MOVE:<dir>     forward|back|left|right|turnleft|turnright      ║
-║    STOP           halt current movement                          ║
-║    RESET          neutral stance                                  ║
-║    DONE           choreography finished                          ║
+║  Protocole (std_msgs/String):                                    ║
+║    SPEED:<1-5>    définir la vitesse de locomotion              ║
+║    ACTION:<1-8>   pose/action intégrée                           ║
+║      1=Étirement  2=Salutation  3=Retraite  4=Échauffement       ║
+║      5=Tourner  6=Dire_non  7=Accroupissement  8=Enjambée       ║
+║    MOVE:<dir>     forward|back|left|right|turnleft|turnright     ║
+║    STOP           arrêter le mouvement actuel                    ║
+║    RESET          position neutre                                ║
+║    DONE           chorégraphie terminée                         ║
 ║                                                                  ║
-║  Usage:                                                          ║
-║    python3 dance_leader.py \\                                     ║
-║        --timeline song_beats.json \\                              ║
+║  Utilisation:                                                    ║
+║    python3 dance_leader.py \\                                    ║
+║        --timeline song_beats.json \\                             ║
 ║        --audio-file song.mp3                                     ║
 ║                                                                  ║
 ║    python3 dance_leader.py --loops 2 --beat 0.8 --speed 3        ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
+
+# ==============================================================================
+# MODULE D'ORCHESTRATION DE DANSE LEADER POUR MUTO-RS
+#
+# Ce module est le cerveau central de la chorégraphie multi-robots synchronisée.
+# Il analyse la musique en temps réel, génère des commandes de mouvement adaptées
+# à l'intensité musicale, et les publie sur ROS 2 pour coordination parfaite.
+#
+# Fonctionnalités clés :
+# - Compensation de latence audio (mesurée empiriquement à 100ms)
+# - Adaptation dynamique de l'agressivité selon les sections musicales
+# - Palettes de mouvements variées pour maintenir l'intérêt
+# - Synchronisation précise avec les battements musicaux
+# ==============================================================================
 
 from __future__ import annotations
 
@@ -45,9 +59,333 @@ from std_msgs.msg import String
 DANCE_TOPIC = "/dance_cmd"
 
 # ─────────────────────────────────────────────────────────────────
-# AUDIO LATENCY COMPENSATION (seconds)
+# COMPENSATION DE LATENCE AUDIO (secondes)
 #
-# After Popen() returns, the audio player needs this many seconds
+# Après que Popen() retourne, le lecteur audio nécessite ce délai
+# avant que le premier échantillon atteigne réellement le DAC.
+# Mesuré empiriquement :
+#   ffplay  ≈ 90–120 ms
+#   mpg123  ≈ 60–90 ms
+#
+# Modèle :
+#   T_spawn  = time.monotonic() juste avant Popen()
+#   T_sound  = T_spawn + AUDIO_PLAYER_LATENCY_S   (1er échantillon audible)
+#   start_t  = T_spawn + AUDIO_PLAYER_LATENCY_S
+#   signal activé à : start_t + cue.t_s
+#              = T_spawn + L + cue.t_s
+#   Pour cue.t_s = 0 → activé à T_sound → synchronisé. ✓
+#
+# Ajuster cette constante :
+#   robot bouge AVANT le battement → augmenter la valeur
+#   robot bouge APRÈS le battement → diminuer la valeur
+# ─────────────────────────────────────────────────────────────────
+AUDIO_PLAYER_LATENCY_S: float = 0.10
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TABLE D'AGRESSIVITÉ DES SECTIONS
+#
+# Mappe tout label de segment → niveau d'agressivité 0–3.
+# Couvre les labels artisanaux (chorus, verse …) ET les labels
+# automatiques émis par decodeur.py (intro/verse/chorus/outro).
+# ═══════════════════════════════════════════════════════════════════
+SECTION_AGGRESSION: dict[str, int] = {
+    # ── calme ──────────────────────────────────────────────────────
+    "start":        0,
+    "silent":       0,
+    "silence":      0,
+    # ── faible ─────────────────────────────────────────────────────
+    "intro":        1,
+    "outro":        1,
+    "fade":         1,
+    "fade_in":      1,
+    "fade_out":     1,
+    # ── moyen ──────────────────────────────────────────────────────
+    "verse":        2,
+    "bridge":       2,
+    "pre-chorus":   2,
+    "pre_chorus":   2,
+    "breakdown":    2,
+    "interlude":    2,
+    # ── élevé ──────────────────────────────────────────────────────
+    "chorus":       3,
+    "drop":         3,
+    "hook":         3,
+    "refrain":      3,
+    "climax":       3,
+    "build":        3,
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PALETTES DE MOUVEMENTS
+#
+# Structure:   palette[beat_pos (1-4)]  →  list[(cmd, hold_factor)]
+# hold_factor: fraction de l'intervalle de battement à maintenir avant d'envoyer STOP.
+# La liste tourne par bar_index, donnant de la variété musicale sans RNG.
+#
+# Règles de maintien (ajustées par plage BPM — voir _select_move):
+#   Battement 1 (downbeat) : 0.72–0.80 × dt   plus gros accent
+#   Battement 2            : 0.48–0.55 × dt   claquement latéral
+#   Battement 3 (backbeat) : 0.62–0.70 × dt   contre-punch
+#   Battement 4            : 0.42–0.50 × dt   anticipation
+#
+# Contrainte stricte: STOP se déclenche ≥ 120 ms avant le prochain battement (appliqué
+# dans _select_move, pas ici).
+# ═══════════════════════════════════════════════════════════════════
+
+# Niveau 0 — calme / début / silence
+_PAL0: dict[int, list[tuple[str, float]]] = {
+    1: [("ACTION:1", 0.70), ("ACTION:4", 0.68)],
+    2: [("MOVE:left", 0.42), ("MOVE:right", 0.42)],
+    3: [("ACTION:6", 0.50), ("MOVE:back",  0.44)],
+    4: [("MOVE:right", 0.38), ("MOVE:left", 0.38)],
+}
+
+# Niveau 1 — intro / outro
+_PAL1: dict[int, list[tuple[str, float]]] = {
+    1: [
+        ("MOVE:forward", 0.72), ("ACTION:2",  0.72),
+        ("ACTION:1",     0.70), ("MOVE:forward", 0.72),
+    ],
+    2: [("MOVE:left", 0.50), ("MOVE:right", 0.50)],
+    3: [
+        ("MOVE:back",      0.60), ("ACTION:6",      0.58),
+        ("MOVE:turnright", 0.58), ("ACTION:3",      0.56),
+    ],
+    4: [("MOVE:right", 0.44), ("MOVE:left", 0.44)],
+}
+
+# Niveau 2 — verse / bridge
+_PAL2: dict[int, list[tuple[str, float]]] = {
+    1: [
+        ("MOVE:forward",   0.75), ("ACTION:8",  0.75),
+        ("MOVE:turnleft",  0.72), ("ACTION:1",  0.72),
+        ("MOVE:forward",   0.75), ("ACTION:7",  0.73),
+        ("MOVE:turnright", 0.70), ("ACTION:4",  0.70),
+    ],
+    2: [
+        ("MOVE:left",  0.52), ("MOVE:right", 0.52),
+        ("MOVE:left",  0.52), ("MOVE:right", 0.52),
+    ],
+    3: [
+        ("MOVE:back",      0.65), ("MOVE:turnright", 0.65),
+        ("ACTION:6",       0.62), ("MOVE:turnleft",  0.63),
+    ],
+    4: [
+        ("MOVE:right", 0.46), ("MOVE:left",  0.46),
+        ("MOVE:right", 0.46), ("MOVE:left",  0.46),
+    ],
+}
+
+# Niveau 3 — chorus / drop / hook — AGRESSIVITÉ MAXIMALE
+_PAL3: dict[int, list[tuple[str, float]]] = {
+    1: [
+        ("MOVE:forward",   0.78), ("ACTION:8",  0.78),
+        ("MOVE:turnleft",  0.76), ("ACTION:7",  0.76),
+        ("ACTION:5",       0.78), ("MOVE:forward", 0.78),
+        ("ACTION:8",       0.78), ("MOVE:turnright", 0.76),
+    ],
+    2: [
+        ("MOVE:left",  0.54), ("MOVE:right", 0.54),
+        ("MOVE:left",  0.54), ("MOVE:right", 0.54),
+        ("MOVE:left",  0.54), ("MOVE:right", 0.54),
+        ("MOVE:left",  0.54), ("MOVE:right", 0.54),
+    ],
+    3: [
+        ("MOVE:back",      0.68), ("MOVE:turnright", 0.68),
+        ("ACTION:6",       0.65), ("MOVE:turnleft",  0.68),
+        ("MOVE:back",      0.68), ("ACTION:7",       0.70),
+        ("MOVE:turnright", 0.68), ("ACTION:6",       0.65),
+    ],
+    4: [
+        ("MOVE:right", 0.50), ("MOVE:left",  0.50),
+        ("MOVE:right", 0.50), ("MOVE:left",  0.50),
+        ("MOVE:right", 0.50), ("MOVE:left",  0.50),
+        ("MOVE:right", 0.50), ("MOVE:left",  0.50),
+    ],
+}
+
+_PALETTES: dict[int, dict[int, list[tuple[str, float]]]] = {
+    0: _PAL0, 1: _PAL1, 2: _PAL2, 3: _PAL3
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CLASSES DE DONNÉES
+# ═══════════════════════════════════════════════════════════════════
+
+class Step:
+    """
+    Représente une étape individuelle dans la séquence de danse.
+    
+    Attributs :
+        name (str) : Nom descriptif de l'étape
+        cmd (str) : Commande ROS 2 à publier
+        pause_s (float) : Durée de pause après cette étape en secondes
+    """
+    __slots__ = ("name", "cmd", "pause_s")
+    def __init__(self, name: str, cmd: str, pause_s: float) -> None:
+        self.name    = name
+        self.cmd     = cmd
+        self.pause_s = pause_s
+
+
+class TimelineCue:
+    """
+    Représente un signal temporel dans la timeline musicale.
+    
+    Attributs :
+        t_s (float) : Temps en secondes depuis le début
+        name (str) : Nom descriptif du signal
+        cmd (str) : Commande associée
+        hold_s (float) : Durée de maintien (optionnel)
+    """
+    __slots__ = ("t_s", "name", "cmd", "hold_s")
+    def __init__(self, t_s: float, name: str, cmd: str, hold_s: float = 0.0) -> None:
+        self.t_s    = t_s
+        self.name   = name
+        self.cmd    = cmd
+        self.hold_s = hold_s
+
+
+class TimelineSelection:
+    """
+    Contient une sélection complète de timeline avec métadonnées.
+    
+    Attributs :
+        cues (list[TimelineCue]) : Liste des signaux temporels
+        source_type (str) : Type de source (ex: 'decodeur')
+        timeline_file (str) : Chemin du fichier timeline
+        audio_path (str) : Chemin du fichier audio (optionnel)
+        bpm (float) : Battements par minute (optionnel)
+        duration_s (float) : Durée totale en secondes (optionnel)
+    """
+    def __init__(
+        self,
+        cues:          list[TimelineCue],
+        source_type:   str,
+        timeline_file: str,
+        audio_path:    str | None = None,
+        bpm:           float | None = None,
+        duration_s:    float | None = None,
+    ) -> None:
+        self.cues          = cues
+        self.source_type   = source_type
+        self.timeline_file = timeline_file
+        self.audio_path    = audio_path
+        self.bpm           = bpm
+        self.duration_s    = duration_s
+
+
+# ═══════════════════════════════════════════════════════════════════
+# INDEX DE SEGMENTS & UTILITAIRES
+# ═══════════════════════════════════════════════════════════════════
+
+def _build_seg_index(
+    segments: list[dict[str, Any]]
+) -> list[tuple[float, float, str]]:
+    """
+    Construit un index des segments musicaux pour recherche rapide.
+    
+    Args:
+        segments: Liste de dictionnaires de segments avec start, end, label
+        
+    Returns:
+        Liste triée de tuples (start, end, label)
+    """
+    index: list[tuple[float, float, str]] = []
+    for seg in segments:
+        try:
+            s     = float(seg["start"])
+            e     = float(seg["end"])
+            label = str(seg.get("label", "intro")).lower().strip()
+            index.append((s, e, label))
+        except (KeyError, TypeError, ValueError):
+            continue
+    index.sort(key=lambda x: x[0])
+    return index
+
+
+def _label_at(t: float, index: list[tuple[float, float, str]]) -> str:
+    """
+    Retourne le label du segment actif au temps donné.
+    
+    Args:
+        t: Temps en secondes
+        index: Index des segments
+        
+    Returns:
+        Label du segment (défaut: "intro")
+    """
+    last = "intro"
+    for s, e, lbl in index:
+        if s <= t < e:
+            return lbl
+        if s > t:
+            break
+        last = lbl
+    return last
+
+
+def _aggression_at(
+    t: float,
+    seg_index: list[tuple[float, float, str]],
+) -> int:
+    """
+    Calcule le niveau d'agressivité au temps donné basé sur le segment.
+    
+    Args:
+        t: Temps en secondes
+        seg_index: Index des segments
+        
+    Returns:
+        Niveau d'agressivité (0-3)
+    """
+    label = _label_at(t, seg_index)
+    return SECTION_AGGRESSION.get(label, 1)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# UTILITAIRES DE FEATURES (lecture format JSON decodeur.py)
+# ═══════════════════════════════════════════════════════════════════
+
+def _extract_beat_feature(data: dict[str, Any], key: str) -> list[float]:
+    """
+    Extrait une feature par battement du dictionnaire de données.
+    
+    Args:
+        data: Dictionnaire JSON de decodeur.py
+        key: Clé de la feature (ex: "energy", "flux")
+        
+    Returns:
+        Liste de valeurs float par battement, ou liste vide si absente
+    """
+    v = data.get(key, [])
+    if not isinstance(v, list):
+        return []
+    out: list[float] = []
+    for x in v:
+        try:
+            out.append(float(x))
+        except (TypeError, ValueError):
+            out.append(0.0)
+    return out
+
+
+def _extract_beat_onset(data: dict[str, Any]) -> list[bool]:
+    """
+    Extrait la liste des onsets par battement.
+    
+    Args:
+        data: Dictionnaire JSON de decodeur.py
+        
+    Returns:
+        Liste de booléens indiquant les onsets
+    """
+    v = data.get("beat_onset", [])
+    if not isinstance(v, list):
+        return []
 # before the first sample actually reaches the DAC.
 # Measured empirically:
 #   ffplay  ≈ 90–120 ms

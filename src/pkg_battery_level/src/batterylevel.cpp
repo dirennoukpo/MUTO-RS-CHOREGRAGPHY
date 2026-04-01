@@ -8,6 +8,24 @@
 ** Last update Sat Mar 13 2:53:52 PM 2026 dirennoukpo
 */
 
+// ==============================================================================
+// NŒUD BEHAVIOR TREE POUR MONITORING DE LA BATTERIE
+//
+// Ce fichier implémente un nœud Behavior Tree personnalisé pour ROS 2
+// qui surveille le niveau de batterie des robots MUTO. Il s'abonne au topic
+// de tension et fournit cette information aux autres nœuds du BT pour
+// prendre des décisions de sécurité (arrêt si batterie faible).
+//
+// Fonctionnalités :
+// - Abonnement dynamique aux topics /robot{id}/voltage
+// - QoS transient_local + reliable pour récupérer la dernière valeur
+// - Ports BT configurables (robot_id, seuil, timeout)
+// - Intégration avec BehaviorTree.CPP v3
+//
+// Utilisation dans BT XML :
+//   <CheckBatteryLevel robot_id="1" min_battery_level="6.0" wait_timeout_ms="5000"/>
+// ==============================================================================
+
 #include "../include/pkg_battery_level/batterylevel.hpp"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
@@ -51,12 +69,17 @@ BT::PortsList CheckBatteryLevel::providedPorts()
 
 BT::NodeStatus CheckBatteryLevel::onStart()
 {
+    // Récupération de l'ID du robot depuis les ports d'entrée BT
     auto id = getInput<std::string>("robot_id");
     if (!id) {
+        // Erreur si le port robot_id n'est pas fourni
         throw BT::RuntimeError("Missing InputPort [robot_id]: ", id.error());
     }
 
+    // Mise à jour de l'abonnement pour le robot spécifié
     update_subscription(id.value());
+    
+    // Configuration du timeout d'attente des données de batterie
     const auto timeout_ms = getInput<int>("wait_timeout_ms").value_or(2000);
     _deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
