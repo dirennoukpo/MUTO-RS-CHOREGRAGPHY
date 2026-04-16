@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+Nœud suiveur de danse ROS2 pour synchronisation multi-robots MUTO-RS.
+
+Ce nœud s'exécute SUR CHAQUE ROBOT (avec MutoLib + ROS2 dans l'image Docker usine).
+Il s'abonne à /dance_cmd et exécute chaque commande via MutoLib.
+
+Protocole (identique à dance_leader.py) :
+  SPEED:<int>         → définir le niveau de vitesse
+  ACTION:<int>        → exécuter l'action intégrée (1-8)
+  MOVE:<direction>    → forward | back | left | right | turnleft | turnright
+  STOP                → arrêter le mouvement
+  RESET               → réinitialiser à la position neutre
+  DONE                → arrêter ce nœud proprement
+
+Utilisation sur le robot (dans le conteneur Docker Muto) :
+  # 1. S'assurer que ROS_DOMAIN_ID correspond à la machine leader :
+  export ROS_DOMAIN_ID=42
+  # 2. Exécuter :
+  python3 dance_follower.py
+  python3 dance_follower.py --step-width 16 --dry-run
+"""
+
+# ==============================================================================
+# MODULE SUIVEUR DE DANSE POUR MUTO-RS
+#
+# Ce module est l'exécutant côté robot dans l'architecture leader-follower.
+# Il reçoit les commandes synchronisées du leader via ROS 2 et les traduit
+# en actions physiques via MutoLib, assurant une exécution parfaite en rythme.
+#
+# Fonctionnalités clés :
+# - Abonnement aux commandes de danse synchronisées
+# - Traduction des commandes en appels MutoLib
+# - Mode dry-run pour simulation sans hardware
+# - Gestion adaptative de la largeur des pas
+# - Arrêt propre sur commande DONE
+# ==============================================================================
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+
+DANCE_TOPIC = "/dance_cmd"
+
+
+class RobotController:
+    """
+    Wrapper pour les appels MutoLib avec mode dry-run optionnel.
+    
+    Cette classe abstrait l'interface hardware du robot Muto,
+    permettant de tester la logique sans matériel physique.
+    """
+    
+    def __init__(self, dry_run: bool, step_width: int) -> None:
+        """
+        Initialise le contrôleur robot.
+        
+        Args:
+            dry_run: Si True, simule les commandes sans hardware
+            step_width: Largeur des pas (clampée entre 10-25)
+        """
+        self.dry_run = dry_run
+        self.step_width = max(10, min(25, step_width))
+        self._bot = None
+        self._speed_level = 2
+
+        if not self.dry_run:
+            try:
+                from MutoLib import Muto  # type: ignore
+                self._bot = Muto()
+                print("[follower] MutoLib connecté OK")
+            except Exception as exc:
+                print(f"[WARN] MutoLib unavailable, switching to dry-run. {exc}")
+                self.dry_run = True
+
+    def _log(self, msg: str) -> None:
+        print(f"[follower] {msg}")
+
+    def speed(self, level: int) -> None:
+        self._speed_level = max(1, min(5, level))
+        self._log(f"speed({self._speed_level})")
+        if not self.dry_run:
+            self._bot.speed(self._speed_level)
+
+    def stop(self) -> None:
+        self._log("stop()")
+        if not self.dry_run:
+            self._bot.stop()
+
+    def reset(self) -> None:
+        self._log("reset()")
+        if not self.dry_run:
+            self._bot.reset()
+
+    def action(self, action_id: int) -> None:
+        self._log(f"action({action_id})")
+        if not self.dry_run:
+            self._bot.action(action_id)
+
+    def move(self, direction: str) -> None:
+        self._log(f"{direction}({self.step_width})")
+        if self.dry_run:
+            return
+        fn_map = {
+            "forward":   self._bot.forward,
+            "back":      self._bot.back,
+            "left":      self._bot.left,
+            "right":     self._bot.right,
+            "turnleft":  self._bot.turnleft,
+            "turnright": self._bot.turnright,
+        }
+        fn = fn_map.get(direction)
+        if fn:
+            fn(self.step_width)
+        else:
+            print(f"[WARN] Unknown direction: {direction}")
+
+
+class DanceFollower(Node):
+    def __init__(self, ctrl: RobotController) -> None:
+        super().__init__("dance_follower")
+        self._ctrl = ctrl
+        self._done = False
+
+        self._sub = self.create_subscription(
+            String,
+            DANCE_TOPIC,
+            self._on_cmd,
+            qos_profile=10,
+        )
+        self.get_logger().info(
+            f"Dance follower ready — listening on '{DANCE_TOPIC}' "
+            f"(dry_run={ctrl.dry_run}, step_width={ctrl.step_width})"
+        )
+
+    def _on_cmd(self, msg: String) -> None:
+        cmd = msg.data.strip()
+        self.get_logger().debug(f"Received: {cmd}")
+
+        if cmd == "STOP":
+            self._ctrl.stop()
+
+        elif cmd == "RESET":
+            self._ctrl.reset()
+
+        elif cmd == "DONE":
+            self.get_logger().info("DONE received — choreography finished.")
+            self._done = True
+
+        elif cmd.startswith("SPEED:"):
+            try:
+                level = int(cmd.split(":", 1)[1])
+                self._ctrl.speed(level)
+            except ValueError:
+                self.get_logger().warn(f"Bad SPEED command: {cmd}")
+
+        elif cmd.startswith("ACTION:"):
+            try:
+                action_id = int(cmd.split(":", 1)[1])
+                self._ctrl.action(action_id)
+            except ValueError:
+                self.get_logger().warn(f"Bad ACTION command: {cmd}")
+
+        elif cmd.startswith("MOVE:"):
+            direction = cmd.split(":", 1)[1].lower()
+            self._ctrl.move(direction)
+
+        else:
+            self.get_logger().warn(f"Unknown command ignored: {cmd}")
+
+    @property
+    def done(self) -> bool:
+        return self._done
+
+
+def parse_args() -> argparse.Namespace:
+    import rclpy.utilities
+    parser = argparse.ArgumentParser(description="MUTO-RS dance follower (ROS2)")
+    parser.add_argument(
+        "--step-width", type=int, default=16,
+        help="Step width for locomotion commands (10-25)"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print commands without sending to robot hardware"
+    )
+    # Strip ROS-injected args (--ros-args, -r __node:=...) before argparse sees them
+    return parser.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
+
+
+def main() -> int:
+    args = parse_args()
+    ctrl = RobotController(dry_run=args.dry_run, step_width=args.step_width)
+
+    rclpy.init()
+    node = DanceFollower(ctrl)
+
+    try:
+        while rclpy.ok() and not node.done:
+            rclpy.spin_once(node, timeout_sec=0.1)
+    except KeyboardInterrupt:
+        node.get_logger().info("Interrupted — stopping robot.")
+        ctrl.stop()
+        ctrl.reset()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
