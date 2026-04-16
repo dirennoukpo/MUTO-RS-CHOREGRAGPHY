@@ -66,6 +66,35 @@ endif
 	@echo "   Platform:   $(PLATFORM)"
 	@echo "   ROS_DISTRO: $(ROS_DISTRO)"
 	@echo "   Git:        $(GIT_COMMIT)"
+	@HOST_ARCH="$$(uname -m)"; \
+	TARGET_ARCH="$$(echo "$(PLATFORM)" | cut -d/ -f2)"; \
+	if [ "$$HOST_ARCH" = "x86_64" ]; then HOST_ARCH="amd64"; fi; \
+	if [ "$$HOST_ARCH" = "aarch64" ]; then HOST_ARCH="arm64"; fi; \
+	if [ "$$HOST_ARCH" != "$$TARGET_ARCH" ]; then \
+		echo "🔧 Cross-build detected ($$HOST_ARCH -> $$TARGET_ARCH), enabling QEMU/binfmt..."; \
+		OK=0; \
+		for i in 1 2 3; do \
+			echo "   Attempt $$i/3: installing binfmt handlers"; \
+			docker pull tonistiigi/binfmt:latest >/dev/null 2>&1 || true; \
+			if docker run --privileged --rm tonistiigi/binfmt --install all >/dev/null 2>&1; then \
+				OK=1; \
+				break; \
+			fi; \
+		done; \
+		if [ "$$OK" -ne 1 ]; then \
+			echo "❌ Failed to install QEMU/binfmt after 3 attempts."; \
+			echo "   This is usually a transient network issue (e.g. TLS bad record MAC)."; \
+			echo "   Retry the build or pre-pull manually: docker pull tonistiigi/binfmt:latest"; \
+			exit 1; \
+		fi; \
+	fi; \
+	if ! docker buildx inspect muto-builder >/dev/null 2>&1; then \
+		echo "🔧 Creating dedicated buildx builder: muto-builder"; \
+		docker buildx create --name muto-builder --driver docker-container --use >/dev/null; \
+	else \
+		docker buildx use muto-builder >/dev/null; \
+	fi; \
+	docker buildx inspect --bootstrap >/dev/null
 
 	docker buildx build \
 		--platform $(PLATFORM) \

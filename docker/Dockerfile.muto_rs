@@ -10,27 +10,31 @@ ARG BUILD_DATE
 ARG GIT_COMMIT
 
 LABEL maintainer="MUTO-RS Contributors"
-LABEL description="MUTO-RS Product ion Image for Raspberry Pi 5"
+LABEL description="MUTO-RS Production Image for Raspberry Pi 5"
 LABEL ros.distro="${ROS_DISTRO}"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=${ROS_DISTRO}
 
 # ─────────────────────────────────────────────────────────────
-# STEP 1: Install ROS2 Repository & Keys
+# STEP 1: Install ROS2 Repository & Keys (Modern Keyring Approach)
 # ─────────────────────────────────────────────────────────────
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
+    ca-certificates \
     curl \
     gnupg \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
-# Add ROS2 GPG key
-RUN curl -sSL https://repo.ros2.org/ros.key | apt-key add - \
-    && add-apt-repository "deb [arch=arm64] https://repo.ros2.org/ubuntu $(lsb_release -cs) main" \
-    || true
+# Add ROS2 GPG key to keyrings (modern Ubuntu 22.04+ method)
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    | gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg
+
+# Add ROS2 repository with signed-by keyring
+RUN echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" \
+    > /etc/apt/sources.list.d/ros2.list
 
 # ─────────────────────────────────────────────────────────────
 # STEP 2: Install ROS2 & Build Tools
@@ -77,8 +81,8 @@ RUN pip3 install --no-cache-dir \
 # STEP 4: Initialize rosdep
 # ─────────────────────────────────────────────────────────────
 
-RUN rosdep init || true
-
+RUN rosdep init || true && \
+    rosdep update
 # ─────────────────────────────────────────────────────────────
 # STEP 5: Create non-root user 'muto'
 # ─────────────────────────────────────────────────────────────

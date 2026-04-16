@@ -61,8 +61,16 @@ check-docker: ## Verify Docker is installed and running
 		case "$$DOCKER_ERROR" in \
 			*"permission denied"*|*"Got permission denied"*) \
 				echo "❌ Docker socket permission denied."; \
-				echo "   Add your user to the docker group and re-login:"; \
-				echo "   sudo usermod -aG docker $$USER"; \
+				if getent group docker | grep -qw "$$USER"; then \
+					echo "   Your user is already in the docker group, but this shell is stale."; \
+					echo "   Use one of these now:"; \
+					echo "   newgrp docker"; \
+					echo "   sg docker -c 'make $(MAKECMDGOALS)'"; \
+					echo "   Or open a new terminal session."; \
+				else \
+					echo "   Add your user to the docker group and re-login:"; \
+					echo "   sudo usermod -aG docker $$USER"; \
+				fi; \
 				exit 1; \
 				;; \
 			*) \
