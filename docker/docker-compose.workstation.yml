@@ -1,0 +1,58 @@
+##
+## docker-compose.workstation.yml
+##
+## Development deployment for MUTO-RS Workstation (Local PC/Mac)
+##
+## Usage:
+##   docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml up -d
+##
+
+version: '3.8'
+
+services:
+  muto-workstation:
+    image: ${MUTO_WS_IMAGE}:${IMAGE_ENV}
+    container_name: muto-workstation-dev
+    
+    # Network configuration for multi-robot ROS2 communication
+    network_mode: host
+    privileged: true
+    
+    environment:
+      - ROS_DISTRO=${ROS_DISTRO}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
+      - ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION}
+      - PLATFORM=${PLATFORM}
+      - DISPLAY=${DISPLAY}
+    
+    # GUI support (X11 forwarding)
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:${HOME}/.Xauthority:ro
+      # Mount local source for development (optional)
+      - ${VOLUME_MUTO_WS}:/muto_ws:delegated
+      - ./config/dds_config.xml:/etc/dds_config.xml:ro
+      - muto_ws_data:/muto_ws_data
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    
+    # Resource allocation
+    # mem_limit: 4g
+    # cpus: '2'
+
+volumes:
+  muto_ws_data:
+    driver: local

@@ -1,113 +1,164 @@
-##
-## provision_muto_rs.sh for MUTO-RS-CHOREGRAGPHY [WSL: Ubuntu] in /home/edwin/MUTO-RS-CHOREGRAGPHY/scripts
-##
-## Made by dirennoukpo
-## Login   <diren.noukpo@epitech.eu>
-##
-## Started on  Thu Apr 16 11:21:23 AM 2026 dirennoukpo
-## Last update Fri Apr 16 11:54:09 AM 2026 dirennoukpo
-##
-
 #!/bin/bash
-set -e
+##
+## provision_muto_rs.sh - Provision MUTO-RS Robot (Raspberry Pi 5)
+##
+## Installs Docker using Docker's official Debian/Ubuntu repository, configures hardware
+## access, installs Tailscale, and prepares the deployment directory layout.
+##
+## Designed to run on the robot after copying the repository assets to /tmp.
+##
 
-echo "🤖 Provisioning MecaMate MUTO_RS..."
+set -euo pipefail
 
-# Charger les variables du .env
-ENV_FILE="$HOME/muto_rs/config/.env.muto_rs"
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Missing $ENV_FILE"
-    exit 1
-fi
-export $(grep -v '^#' "$ENV_FILE" | xargs)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/utils.sh"
 
-# Pre-flight checks
-if [ "$EUID" -eq 0 ]; then
-    echo "❌ Do not run as root"
-    exit 1
-fi
+log "🤖 Provisioning MUTO-RS Robot"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 1: Pre-flight checks
+# ─────────────────────────────────────────────────────────────
+
+log "📋 Running pre-flight checks"
+ensure_not_root
 
 if ! grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null; then
-    echo "⚠️ Not a Raspberry Pi 5"
-    exit 1
+    warn "This doesn't appear to be a Raspberry Pi 5"
+    warn "Continuing anyway. Press Ctrl+C to abort if this is wrong."
+    sleep 3
 fi
 
-if ! ping -c 1 google.com &> /dev/null; then
-    echo "❌ No internet connection"
-    exit 1
+ensure_internet
+log "✅ Pre-flight checks passed"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 2: Setup logging
+# ─────────────────────────────────────────────────────────────
+
+PROVISION_LOG="$HOME/muto_rs_provision.log"
+exec > >(tee -a "$PROVISION_LOG") 2>&1
+log "Starting MUTO-RS provisioning"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 3: Setup deployment structure
+# ─────────────────────────────────────────────────────────────
+
+log "📦 Setting up deployment structure"
+
+# Create directories
+mkdir -p "$HOME/muto_rs"/{docker,config}
+mkdir -p "$HOME/muto_rs_data"/{logs,rosbags,backups}
+
+if [ -f "/tmp/docker-compose.muto_rs.yml" ]; then
+	cp /tmp/docker-compose.muto_rs.yml "$HOME/muto_rs/docker/"
+	log "Copied docker-compose.muto_rs.yml"
 fi
 
-echo "✓ Pre-checks passed"
-
-# Enable hardware interfaces
-echo "⚙️ Configuring interfaces..."
-sudo raspi-config nonint do_serial 0
-sudo raspi-config nonint do_i2c 0
-echo "✓ Serial, I2C, GPIO enabled"
-
-# Install Docker
-echo "🐳 Installing Docker..."
-if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
-    rm /tmp/get-docker.sh
+if [ -f "/tmp/.env.muto_rs.example" ] && [ ! -f "$HOME/muto_rs/config/.env.muto_rs" ]; then
+	cp /tmp/.env.muto_rs.example "$HOME/muto_rs/config/.env.muto_rs.example"
+	cp /tmp/.env.muto_rs.example "$HOME/muto_rs/config/.env.muto_rs"
+	log "Initialized .env.muto_rs from example"
 fi
-sudo usermod -aG docker $USER
-sudo systemctl enable docker
-echo "✓ Docker ready"
 
-# Hardware permissions
-sudo usermod -aG gpio,i2c,dialout $USER
-echo "✓ Hardware access configured"
+if [ -f "/tmp/dds_config.xml" ]; then
+    cp /tmp/dds_config.xml "$HOME/muto_rs/config/"
+    log "Copied dds_config.xml"
+fi
 
-# Install Tailscale
-echo "🌐 Installing Tailscale..."
-if ! command -v tailscale &> /dev/null; then
+log "✅ Deployment structure ready"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 4: Load environment variables
+# ─────────────────────────────────────────────────────────────
+
+ENV_FILE="$HOME/muto_rs/config/.env.muto_rs"
+if [ ! -f "$ENV_FILE" ]; then
+    warn ".env.muto_rs not found; using defaults"
+else
+    load_env_file "$ENV_FILE"
+fi
+
+# ─────────────────────────────────────────────────────────────
+# STEP 5: Enable Hardware Interfaces
+# ─────────────────────────────────────────────────────────────
+
+log "⚙️ Configuring hardware interfaces"
+sudo raspi-config nonint do_serial 0 2>/dev/null || warn "Serial config skipped"
+sudo raspi-config nonint do_i2c 0 2>/dev/null || warn "I2C config skipped"
+sudo raspi-config nonint do_ssh 0 2>/dev/null || warn "SSH config skipped"
+log "✅ Hardware interfaces configured"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 6: Install Docker
+# ─────────────────────────────────────────────────────────────
+
+log "🐳 Setting up Docker"
+
+if command -v docker >/dev/null 2>&1; then
+	log "Docker already installed: $(docker --version)"
+else
+    install_docker_official_repo
+	log "Docker installed from official repository"
+fi
+
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER" || true
+log "Docker daemon enabled and user added to docker group"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 7: Configure Hardware Permissions
+# ─────────────────────────────────────────────────────────────
+
+log "🔐 Configuring hardware permissions"
+
+sudo usermod -aG gpio,i2c,dialout $USER || true
+
+log "User groups configured (gpio, i2c, dialout)"
+warn "You may need to log out and back in for groups to take effect"
+
+# ─────────────────────────────────────────────────────────────
+# STEP 8: Install Tailscale (VPN for multi-robot networks)
+# ─────────────────────────────────────────────────────────────
+
+log "🌐 Setting up Tailscale VPN"
+
+if command -v tailscale &> /dev/null; then
+    log "Tailscale already installed"
+else
+    log "Installing Tailscale"
     curl -fsSL https://tailscale.com/install.sh | sh
+    log "Tailscale installed"
 fi
 
-# Restrict Tailscale to current user
-sudo tee /etc/sudoers.d/tailscale-restrict > /dev/null <<EOF
+# Restrict Tailscale sudo access to current user
+sudo tee /etc/sudoers.d/muto-tailscale > /dev/null <<EOF
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tailscale
 EOF
-sudo chmod 440 /etc/sudoers.d/tailscale-restrict
+sudo chmod 440 /etc/sudoers.d/muto-tailscale
 
-# Utiliser directement les variables du .env.muto_rs
-if [ -z "$TS_AUTHKEY" ] || [ -z "$TS_HOSTNAME" ]; then
-    echo "❌ Missing TS_AUTHKEY or TS_HOSTNAME in .env.muto_rs"
-    exit 1
+log "Tailscale sudo access configured"
+
+# Attempt to connect with provided credentials
+if [ -n "$TS_AUTHKEY" ] && [ -n "$TS_HOSTNAME" ]; then
+    log "Connecting to Tailscale network"
+    sudo tailscale up \
+        --authkey="$TS_AUTHKEY" \
+        --hostname="$TS_HOSTNAME" \
+        --accept-routes="${TS_ACCEPT_ROUTES:-false}" \
+        --advertise-exit-node="${TS_ADVERTISE_EXIT_NODE:-false}" \
+        2>/dev/null && \
+        log "Tailscale connected" || \
+        warn "Tailscale connection failed. Configure manually or check credentials."
+else
+    warn "Tailscale credentials not set in .env.muto_rs"
+    warn "Configure later: sudo tailscale up --authkey=<key> --hostname=<name>"
 fi
 
-sudo tailscale up \
-    --authkey="$TS_AUTHKEY" \
-    --hostname="$TS_HOSTNAME" \
-    --accept-routes="$TS_ACCEPT_ROUTES" \
-    --advertise-exit-node="$TS_ADVERTISE_EXIT_NODE"
+# ─────────────────────────────────────────────────────────────
+# STEP 9: Final Summary
+# ─────────────────────────────────────────────────────────────
 
-echo "✓ Tailscale connected"
-
-# Setup deployment structure
-echo "📦 Setting up deployment..."
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-mkdir -p "$HOME/muto_rs"/{docker,config} "$HOME/mecamate_rosbag" "$HOME/mecamate_logs"
-
-# Copy files maintaining directory structure
-cp "$SCRIPT_DIR/docker-compose.muto_rs.yml" "$HOME/muto_rs/docker/" 2>/dev/null || \
-    cp "$SCRIPT_DIR/../docker/docker-compose.muto_rs.yml" "$HOME/muto_rs/docker/"
-cp "$SCRIPT_DIR/.env.muto_rs.example" "$HOME/muto_rs/config/.env.muto_rs" 2>/dev/null || \
-    cp "$SCRIPT_DIR/../config/.env.muto_rs.example" "$HOME/muto_rs/config/.env.muto_rs"
-cp "$SCRIPT_DIR/dds_config.xml" "$HOME/muto_rs/config/" 2>/dev/null || \
-    cp "$SCRIPT_DIR/../config/dds_config.xml" "$HOME/muto_rs/config/"
-
-echo "✓ Deployment ready at ~/muto_rs"
-
-# Summary
-echo ""
-echo "✅ Provisioning complete"
-echo ""
-echo "Next steps:"
-echo "  1. Reboot (required for group changes)"
-echo "  2. Load Docker image"
-echo "  3. Edit ~/muto_rs/config/.env.muto_rs if needed"
-echo "  4. Deploy: cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml up -d"
-echo ""
+log "✅ MUTO-RS Robot provisioning complete"
+log "Next steps: log out/in for group changes, review ~/muto_rs/config/.env.muto_rs, then deploy with docker compose"
+log "Log saved to: $PROVISION_LOG"

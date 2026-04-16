@@ -1,32 +1,158 @@
 # docker/Dockerfile.muto_rs
+# Production image for MUTO-RS Robot (Raspberry Pi 5 - ARM64)
+# Includes ROS2 Humble, colcon build tools, and production dependencies
+
 FROM ubuntu:22.04
 
 ARG ROS_DISTRO=humble
-ARG PRODUCER_TAG
-ARG MUTO_RS_IMAGE
+ARG PRODUCER_TAG=muto-dev
+ARG BUILD_DATE
+ARG GIT_COMMIT
 
-# Installer ROS2 et dépendances robot
-RUN apt-get update && apt-get install -y \
+LABEL maintainer="MUTO-RS Contributors"
+LABEL description="MUTO-RS Product ion Image for Raspberry Pi 5"
+LABEL ros.distro="${ROS_DISTRO}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=${ROS_DISTRO}
+
+# ─────────────────────────────────────────────────────────────
+# STEP 1: Install ROS2 Repository & Keys
+# ─────────────────────────────────────────────────────────────
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    curl \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add ROS2 GPG key
+RUN curl -sSL https://repo.ros2.org/ros.key | apt-key add - \
+    && add-apt-repository "deb [arch=arm64] https://repo.ros2.org/ubuntu $(lsb_release -cs) main" \
+    || true
+
+# ─────────────────────────────────────────────────────────────
+# STEP 2: Install ROS2 & Build Tools
+# ─────────────────────────────────────────────────────────────
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-ros-base \
     python3-pip \
     python3-colcon-common-extensions \
     python3-rosdep \
+    build-essential \
+    cmake \
+    git \
     i2c-tools \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Initialiser rosdep (ignore erreur si déjà fait)
+# ─────────────────────────────────────────────────────────────
+# STEP 3: Install Robot-Specific Dependencies
+# ─────────────────────────────────────────────────────────────
+
+# GPIO, hardware drivers
+RUN pip3 install --no-cache-dir \
+    rpi.gpio \
+    adafruit-blinka \
+    adafruit-circuitpython-servokit \
+    board
+
+# Audio libraries for choreography
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libfftw3-dev \
+    libsndfile1-dev \
+    libsamplerate0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir \
+    numpy \
+    scipy \
+    librosa \
+    soundfile
+
+# ─────────────────────────────────────────────────────────────
+# STEP 4: Initialize rosdep
+# ─────────────────────────────────────────────────────────────
+
 RUN rosdep init || true
 
-# Ajouter drivers et librairies spécifiques
-RUN pip3 install rpi.gpio adafruit-blinka
+# ─────────────────────────────────────────────────────────────
+# STEP 5: Create non-root user 'muto'
+# ─────────────────────────────────────────────────────────────
 
-ENV PRODUCER_TAG=${PRODUCER_TAG}
-ENV ROS_DISTRO=${ROS_DISTRO}
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid ${USER_GID} muto \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash muto \
+    && echo "muto ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/muto \
+    && chmod 0440 /etc/sudoers.d/muto
 
-WORKDIR /workspace
+# Setup ROS2 vars for user
+RUN mkdir -p /home/muto/.ros \
+    && chown -R muto:muto /home/muto
+
+# ─────────────────────────────────────────────────────────────
+# STEP 6: Prepare workspace
+# ─────────────────────────────────────────────────────────────
+
+WORKDIR /muto_ws
+
+# Copy workspace source
+COPY --chown=muto:muto muto_ws /muto_ws
+
+# Copier la librairie MutoLib dans l'image
+COPY setup/MutoLib /muto_ws/src/MutoLib
+
+# Installer la librairie en mode editable
+RUN pip3 install -e /muto_ws/src/MutoLib
+
+# ─────────────────────────────────────────────────────────────
+# STEP 7: Install ROS2 dependencies via rosdep
+# ─────────────────────────────────────────────────────────────
+
+RUN apt-get update \
+    && rosdep install --from-paths src --ignore-src -r -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─────────────────────────────────────────────────────────────
+# STEP 8: Build workspace with colcon
+# ─────────────────────────────────────────────────────────────
+
+RUN rm -rf build install log && \
+    . /opt/ros/${ROS_DISTRO}/setup.sh && \
+    colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# Verify build succeeded
+RUN test -f /muto_ws/install/setup.bash || \
+    (echo "❌ ERROR: Workspace build failed"; exit 1)
+
+# ─────────────────────────────────────────────────────────────
+# STEP 9: Setup environment in bashrc (for non-interactive shells)
+# ─────────────────────────────────────────────────────────────
+
+USER muto
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
+    echo "source /muto_ws/install/setup.bash" >> ~/.bashrc && \
+    echo "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}" >> ~/.bashrc
+
+USER root
+
+# ─────────────────────────────────────────────────────────────
+# STEP 10: Copy entrypoint
+# ─────────────────────────────────────────────────────────────
 
 COPY docker/entrypoint.muto_rs.sh /entrypoint.muto_rs.sh
 RUN chmod +x /entrypoint.muto_rs.sh
+
+# ─────────────────────────────────────────────────────────────
+# FINAL: Set user & entrypoint
+# ─────────────────────────────────────────────────────────────
+
+USER muto
+WORKDIR /muto_ws
 
 ENTRYPOINT ["/entrypoint.muto_rs.sh"]
 CMD ["bash"]

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- FastDDS Configuration for ROS2 MUTO-RS Platform
+     
+     This configuration uses Simple Discovery Protocol (default ROS2 behavior).
+     Nodes will automatically discover each other via multicast on the local network.
+     
+     Benefits:
+     - No discovery server infrastructure required
+     - Automatic peer-to-peer discovery
+     - Works out-of-the-box on local networks
+     
+     Limitations:
+     - Only works on same subnet/local network
+     - Does not work across VPN (like Tailscale) without multicast routing
+     
+     For multi-robot setups across VPN, consider using Discovery Server mode instead.
+     See docs/deployment/tailscale-dds.md for Discovery Server configuration. -->
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <participant profile_name="default_participant" is_default_profile="true">
+            <rtps>
+                <builtin>
+                    <discovery_config>
+                        <!-- SIMPLE: Standard multicast-based discovery (default ROS2 behavior) -->
+                        <discoveryProtocol>SIMPLE</discoveryProtocol>
+                    </discovery_config>
+                </builtin>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>

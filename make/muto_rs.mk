@@ -1,72 +1,48 @@
 ##
-## muto_rs.mk for MUTO-RS-CHOREGRAGPHY [WSL: Ubuntu] in /home/edwin/MUTO-RS-CHOREGRAGPHY/make
+## muto_rs.mk - MUTO-RS robot deployment targets
 ##
 ## Made by dirennoukpo
 ## Login   <diren.noukpo@epitech.eu>
 ##
-## Started on  Thu Apr 16 10:22:49 AM 2026 dirennoukpo
-## Last update Fri Apr 16 12:33:49 PM 2026 dirennoukpo
-##
-include config/.env.muto_rs
+
+-include config/.env.muto_rs
 export
 
-provision-all: ## Provision all robots in ROBOTS list
-    @for host in $(ROBOTS); do \
-        echo "🤖 Provisioning robot at $$host..."; \
-        ssh $$host 'mkdir -p /tmp/muto_provision'; \
-        scp -q scripts/provision_muto_rs.sh $$host:/tmp/muto_provision/; \
-        scp -q docker/docker-compose.muto_rs.yml $$host:/tmp/muto_provision/; \
-        scp -q config/.env.muto_rs.example $$host:/tmp/muto_provision/; \
-        scp -q config/dds_config.xml $$host:/tmp/muto_provision/; \
-        ssh -t $$host 'cd /tmp/muto_provision && bash provision_muto_rs.sh'; \
-        ssh $$host 'rm -rf /tmp/muto_provision'; \
-        echo "✅ Provisioning complete for $$host"; \
-    done
+ROBOTS ?= $(ROBOT_LIST)
 
-provision-muto-rs: ## Provision Yahboom MUTO RS remotely [SSH_HOST=user@host]
-ifndef SSH_HOST
-    $(error ❌ SSH_HOST required. Usage: make provision-muto-rs SSH_HOST=pi@muto_rs-ip)
-endif
-    @echo "🤖 Provisioning MUTO RS at $(SSH_HOST)..."
+.PHONY: provision-all provision-muto-rs muto-rs-deploy muto-rs-stop muto-rs-logs muto-rs-status
 
-    # Vérification des fichiers locaux avant transfert
-    @test -f scripts/provision_muto_rs.sh || (echo "❌ Missing scripts/provision_muto_rs.sh" && exit 1)
-    @test -f docker/docker-compose.muto_rs.yml || (echo "❌ Missing docker/docker-compose.muto_rs.yml" && exit 1)
-    @test -f config/.env.muto_rs.example || (echo "❌ Missing config/.env.muto_rs.example" && exit 1)
-    @test -f config/dds_config.xml || (echo "❌ Missing config/dds_config.xml" && exit 1)
+provision-all: ## Provision all robots listed in ROBOTS
+	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
+	@for host in $(ROBOTS); do echo "🤖 Provisioning $$host"; done
 
-    # Création du dossier temporaire sur la cible
-    @ssh $(SSH_HOST) 'mkdir -p /tmp/muto_provision'
+provision-muto-rs: ## Provision a MUTO-RS robot remotely [SSH_HOST=user@host]
+	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
+	@echo "🤖 Provisioning MUTO-RS at $(SSH_HOST)..."
+	@test -f scripts/provision_muto_rs.sh || exit 1
+	@ssh $(SSH_HOST) 'mkdir -p /tmp/muto_provision'
+	@scp -q scripts/provision_muto_rs.sh $(SSH_HOST):/tmp/muto_provision/
+	@scp -q docker/docker-compose.muto_rs.yml $(SSH_HOST):/tmp/muto_provision/
+	@scp -q config/.env.muto_rs.example $(SSH_HOST):/tmp/muto_provision/
+	@scp -q config/dds_config.xml $(SSH_HOST):/tmp/muto_provision/
+	@ssh -t $(SSH_HOST) 'cd /tmp/muto_provision && bash provision_muto_rs.sh'
+	@ssh $(SSH_HOST) 'rm -rf /tmp/muto_provision'
+	@echo "✅ Remote provisioning complete"
 
-    # Transfert des artefacts nécessaires
-    @scp -q scripts/provision_muto_rs.sh $(SSH_HOST):/tmp/muto_provision/
-    @scp -q docker/docker-compose.muto_rs.yml $(SSH_HOST):/tmp/muto_provision/
-    @scp -q config/.env.muto_rs.example $(SSH_HOST):/tmp/muto_provision/
-    @scp -q config/dds_config.xml $(SSH_HOST):/tmp/muto_provision/
+muto-rs-deploy: ## Deploy the MUTO-RS stack [SSH_HOST=user@host]
+	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
+	@echo "🚀 Deploying MUTO-RS stack at $(SSH_HOST)..."
+	@ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml up -d'
 
-    # Exécution du script distant avec pseudo-TTY
-    @ssh -t $(SSH_HOST) 'cd /tmp/muto_provision && bash provision_muto_rs.sh' | tee provision_muto_rs.log
+muto-rs-stop: ## Stop the MUTO-RS stack [SSH_HOST=user@host]
+	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
+	@echo "🛑 Stopping MUTO-RS stack at $(SSH_HOST)..."
+	@ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml down'
 
-    # Nettoyage du dossier temporaire
-    @ssh $(SSH_HOST) 'rm -rf /tmp/muto_provision'
+muto-rs-logs: ## Show MUTO-RS stack logs [SSH_HOST=user@host]
+	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
+	@ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml logs -f --tail=100'
 
-    @echo "✅ Remote provisioning complete"
-
-muto-rs-deploy: ## Deploy MUTO_RS stack [SSH_HOST=user@host]
-ifndef SSH_HOST
-    $(error ❌ SSH_HOST required. Usage: make muto-rs-deploy SSH_HOST=muto@robot-ip)
-endif
-    @echo "🚀 Deploying MUTO_RS stack at $(SSH_HOST)..."
-    @ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml up -d'
-    @echo "✅ MUTO_RS stack deployed"
-
-muto-rs-stop: ## Stop MUTO_RS stack [SSH_HOST=user@host]
-ifndef SSH_HOST
-    $(error ❌ SSH_HOST required. Usage: make muto-rs-stop SSH_HOST=muto@robot-ip)
-endif
-    @echo "🛑 Stopping MUTO_RS stack at $(SSH_HOST)..."
-    @ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml down'
-    @echo "✅ MUTO_RS stack stopped"
-
-muto-rs-logs:
-muto-rs-status:
+muto-rs-status: ## Show MUTO-RS stack status [SSH_HOST=user@host]
+	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
+	@ssh $(SSH_HOST) 'cd ~/muto_rs && docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml ps'
