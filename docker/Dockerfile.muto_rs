@@ -1,0 +1,32 @@
+# docker/Dockerfile.muto_rs
+FROM ubuntu:22.04
+
+ARG ROS_DISTRO=humble
+ARG PRODUCER_TAG
+ARG MUTO_RS_IMAGE
+
+# Installer ROS2 et dépendances robot
+RUN apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-ros-base \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    i2c-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Initialiser rosdep (ignore erreur si déjà fait)
+RUN rosdep init || true
+
+# Ajouter drivers et librairies spécifiques
+RUN pip3 install rpi.gpio adafruit-blinka
+
+ENV PRODUCER_TAG=${PRODUCER_TAG}
+ENV ROS_DISTRO=${ROS_DISTRO}
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.muto_rs.sh /entrypoint.muto_rs.sh
+RUN chmod +x /entrypoint.muto_rs.sh
+
+ENTRYPOINT ["/entrypoint.muto_rs.sh"]
+CMD ["bash"]
