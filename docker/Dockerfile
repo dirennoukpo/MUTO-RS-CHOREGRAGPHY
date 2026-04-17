@@ -31,12 +31,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-setuptools \
     python3-wheel \
     python3-colcon-common-extensions \
-    python3-rosdep \
-    python3-vcstool \
-    ros-humble-rviz2 \
-    ros-humble-navigation2 \
-    ros-humble-nav2-bringup \
-    ros-humble-behaviortree-cpp-v3 \
+    # python3-rosdep \
+    # python3-vcstool \
+    # ros-humble-rviz2 \
+    # ros-humble-navigation2 \
+    # ros-humble-nav2-bringup \
+    # ros-humble-behaviortree-cpp-v3 \
     ros-humble-rmw-fastrtps-cpp \
     && rm -rf /var/lib/apt/lists/*
 
