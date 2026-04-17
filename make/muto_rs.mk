@@ -10,7 +10,7 @@
 ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
 SSH_USER ?= muto
 
-.PHONY: provision-all provision-muto-rs muto-rs-deploy-all muto-rs-deploy muto-rs-stop muto-rs-logs muto-rs-status
+.PHONY: provision-all provision-muto-rs muto-rs-deploy-all muto-rs-deploy muto-rs-stop-all muto-rs-stop muto-rs-logs muto-rs-status
 
 provision-all: ## Provision all robots listed in ROBOTS
 	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
@@ -80,6 +80,22 @@ muto-rs-stop: ## Stop the MUTO-RS stack [SSH_HOST=user@host]
 	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
 	@echo "🛑 Stopping MUTO-RS stack at $(SSH_HOST)..."
 	@ssh $(SSH_HOST) 'cd ~/muto_rs && MUTO_RS_IMAGE=$(MUTO_RS_IMAGE) IMAGE_ENV=$(IMAGE_ENV) docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml down'
+
+muto-rs-stop-all: ## Stop the MUTO-RS stack on all robots listed in ROBOTS
+	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
+	@failed_hosts=""; \
+	for host in $(ROBOTS); do \
+		ssh_host="$$host"; \
+		case "$$host" in *@*) ;; *) ssh_host="$(SSH_USER)@$$host" ;; esac; \
+		echo "🛑 Stopping $$ssh_host"; \
+		if ! $(MAKE) muto-rs-stop SSH_HOST=$$ssh_host; then \
+			failed_hosts="$$failed_hosts $$ssh_host"; \
+		fi; \
+	done; \
+	if [ -n "$$failed_hosts" ]; then \
+		echo "❌ Stop failed for:$$failed_hosts"; \
+		exit 1; \
+	fi
 
 muto-rs-logs: ## Show MUTO-RS stack logs [SSH_HOST=user@host]
 	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi

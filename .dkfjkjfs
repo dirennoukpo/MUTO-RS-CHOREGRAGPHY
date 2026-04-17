@@ -1,0 +1,33 @@
+# Workstation Environment Configuration
+# Usage: cp config/.env.workstation.example config/.env.workstation
+#        docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml up -d
+
+## Docker Platform
+PLATFORM=linux/amd64
+
+## ROS2 Configuration
+ROS_DISTRO=humble
+ROS_DOMAIN_ID=0
+ROS_LOCALHOST_ONLY=0
+RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+## DDS Discovery (workstation runs as server)
+ROS_DISCOVERY_SERVER=127.0.0.1:11811
+ROS_DISCOVERY_SERVER_PORT=11811
+
+## Docker Image
+PRODUCER_TAG=noukpodiren
+MECAMATE_IMAGE=mecamate
+IMAGE_ENV=prod
+
+## Tailscale VPN
+TS_AUTHKEY=tskey-auth-k3ncfHXmzd11CNTRL-xXqKCuRuGA1WVd6vm56KA1iynSqds1CtR
+TS_HOSTNAME=mecamate-workstation
+TS_ACCEPT_ROUTES=false
+TS_ADVERTISE_EXIT_NODE=false
+
+## Workstation Bringup Configuration
+ENABLE_TELEOP=true
+ENABLE_SIGNALISATION_TELEOP=true
+ENABLE_JOY=true
+CONTROLLER_TYPE=xbox_series_x
