@@ -23,6 +23,7 @@ services:
       - ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY}
       - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION}
       - PLATFORM=${PLATFORM}
+      - MUTO_SERIAL_PORT=${MUTO_SERIAL_PORT:-/dev/ttyAMA0}
     
     # Hardware access for I2C/GPIO/Serial
     devices:

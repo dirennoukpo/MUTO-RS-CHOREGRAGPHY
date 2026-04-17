@@ -39,6 +39,7 @@ Utilisation sur le robot (dans le conteneur Docker Muto) :
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import rclpy
@@ -69,14 +70,24 @@ class RobotController:
         self.step_width = max(10, min(25, step_width))
         self._bot = None
         self._speed_level = 2
+        self._serial_port = os.getenv("MUTO_SERIAL_PORT", "/dev/myserial")
 
         if not self.dry_run:
             try:
                 from MutoLib import Muto  # type: ignore
-                self._bot = Muto()
-                print("[follower] MutoLib connecté OK")
             except Exception as exc:
-                print(f"[WARN] MutoLib unavailable, switching to dry-run. {exc}")
+                print(f"[WARN] Failed to import MutoLib, switching to dry-run. {exc}")
+                self.dry_run = True
+                return
+
+            try:
+                self._bot = Muto(port=self._serial_port)
+                print(f"[follower] MutoLib connected OK on {self._serial_port}")
+            except Exception as exc:
+                print(
+                    "[WARN] MutoLib loaded but hardware init failed, "
+                    f"switching to dry-run (port={self._serial_port}). {exc}"
+                )
                 self.dry_run = True
 
     def _log(self, msg: str) -> None:
