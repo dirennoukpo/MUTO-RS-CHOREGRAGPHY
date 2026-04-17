@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 
 import rclpy
@@ -71,6 +72,7 @@ class RobotController:
         self._bot = None
         self._speed_level = 2
         self._serial_port = os.getenv("MUTO_SERIAL_PORT", "/dev/myserial")
+        self._shutdown_done = False
 
         if not self.dry_run:
             try:
@@ -145,6 +147,20 @@ class RobotController:
         else:
             print(f"[WARN] Unknown direction: {direction}")
 
+    def safe_shutdown(self) -> None:
+        """Best-effort hardware stop sequence, idempotent."""
+        if self._shutdown_done:
+            return
+        self._shutdown_done = True
+        try:
+            self.stop()
+        except Exception as exc:
+            print(f"[WARN] stop() during shutdown failed: {exc}")
+        try:
+            self.reset()
+        except Exception as exc:
+            print(f"[WARN] reset() during shutdown failed: {exc}")
+
 
 class DanceFollower(Node):
     def __init__(self, ctrl: RobotController) -> None:
@@ -175,6 +191,7 @@ class DanceFollower(Node):
 
         elif cmd == "DONE":
             self.get_logger().info("DONE received — choreography finished.")
+            self._ctrl.safe_shutdown()
             self._done = True
 
         elif cmd.startswith("SPEED:"):
@@ -224,15 +241,24 @@ def main() -> int:
 
     rclpy.init()
     node = DanceFollower(ctrl)
+    stop_requested = {"value": False}
+
+    def _request_stop(signum, _frame) -> None:
+        stop_requested["value"] = True
+        node.get_logger().info(f"Signal {signum} received — stopping robot.")
+        ctrl.safe_shutdown()
+
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
 
     try:
-        while rclpy.ok() and not node.done:
+        while rclpy.ok() and not node.done and not stop_requested["value"]:
             rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted — stopping robot.")
-        ctrl.stop()
-        ctrl.reset()
+        ctrl.safe_shutdown()
     finally:
+        ctrl.safe_shutdown()
         node.destroy_node()
         rclpy.shutdown()
 
