@@ -91,6 +91,7 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 RUN groupadd --gid ${USER_GID} muto \
     && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash muto \
+    && usermod -aG dialout muto \
     && echo "muto ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/muto \
     && chmod 0440 /etc/sudoers.d/muto
 

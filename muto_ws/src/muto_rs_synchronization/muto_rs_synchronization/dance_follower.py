@@ -82,7 +82,20 @@ class RobotController:
 
             try:
                 self._bot = Muto(port=self._serial_port)
-                print(f"[follower] MutoLib connected OK on {self._serial_port}")
+                fw = self._bot.read_version()
+                batt = self._bot.read_battery(True)
+                if fw is None and batt == 0.0:
+                    print(
+                        "[WARN] MutoLib opened serial port but robot did not reply "
+                        f"(port={self._serial_port}, fw=None, battery=0.0). "
+                        "Check UART wiring, robot controller power, and selected serial port."
+                    )
+                    self.dry_run = True
+                    return
+                print(
+                    f"[follower] MutoLib connected OK on {self._serial_port} "
+                    f"(fw={fw}, battery={batt})"
+                )
             except Exception as exc:
                 print(
                     "[WARN] MutoLib loaded but hardware init failed, "
