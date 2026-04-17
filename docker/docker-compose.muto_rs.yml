@@ -7,8 +7,6 @@
 ##   docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml up -d
 ##
 
-version: '3.8'
-
 services:
   muto-rs:
     image: ${MUTO_RS_IMAGE}:${IMAGE_ENV}
@@ -43,7 +41,7 @@ services:
     # mem_limit: 2g
     # cpus: '1.5'
     
-    # Keep container running
+    # Interactive terminal support (optional)
     stdin_open: true
     tty: true
     

@@ -11,7 +11,7 @@
 ## Login   <diren.noukpo@epitech.eu>
 ##
 ## Started on  Thu Apr 16 1:18:37 PM 2026 dirennoukpo
-## Last update Fri Apr 16 1:54:42 PM 2026 dirennoukpo
+## Last update Fri Apr 16 11:15:27 PM 2026 dirennoukpo
 ##
 
 set -eo pipefail
@@ -73,7 +73,11 @@ echo "[entrypoint] ✅ Environment ready"
 echo ""
 
 # ─────────────────────────────────────────────────────────────
-# STEP 4: Execute command or start bash
+# STEP 4: Execute requested command or start the follower node
 # ─────────────────────────────────────────────────────────────
+
+if [ "$#" -eq 0 ]; then
+    set -- ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=follower
+fi
 
 exec "$@"

@@ -5,7 +5,7 @@
 ## Login   <diren.noukpo@epitech.eu>
 ##
 ## Started on  Thu Apr 16 10:25:21 AM 2026 dirennoukpo
-## Last update Fri Apr 16 1:54:42 PM 2026 dirennoukpo
+## Last update Sat Apr 17 2:01:07 AM 2026 dirennoukpo
 ##
 
 .PHONY: provision-workstation workstation-deploy workstation-stop workstation-logs workstation-status workstation-build
@@ -30,34 +30,34 @@ workstation-deploy: check-docker ## Deploy workstation stack locally
 		echo "⚠️  Creating .env.workstation from example..."; \
 		cp config/.env.workstation.example config/.env.workstation; \
 	fi
-	docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml up -d
+	env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml up -d
 	@echo "✅ Workstation stack deployed"
 	@echo "   View logs: make workstation-logs"
 
 workstation-stop: ## Stop workstation stack
 	@echo "🛑 Stopping MUTO-RS workstation stack..."
 	@if [ -f "docker-compose.workstation.yml" ]; then \
-		docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml down; \
+		env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml down; \
 	else \
-		docker compose -f docker/docker-compose.workstation.yml down 2>/dev/null || echo "No running stack"; \
+		env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose -f docker/docker-compose.workstation.yml down 2>/dev/null || echo "No running stack"; \
 	fi
 	@echo "✅ Workstation stack stopped"
 
 workstation-logs: ## View workstation container logs
 	@echo "📊 Workstation logs:"
-	docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml logs -f --tail=50 muto-workstation
+	env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml logs -f --tail=50 muto-workstation
 
 workstation-status: ## Check workstation container status
 	@echo "📋 Workstation status:"
-	docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml ps
+	env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml ps
 	@echo ""
 	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep muto-workstation || echo "Container not running"
 
 workstation-shell: ## Open interactive shell in workstation container
-	@docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml exec muto-workstation bash
+	@env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml exec muto-workstation bash
 
 workstation-rviz: ## Launch RViz2 in workstation container
 	@echo "Starting RViz2..."
-	@docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml exec muto-workstation ros2 launch nav2_bringup rviz_launch.py
+	@env -u IMAGE_ENV -u MUTO_WS_IMAGE docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml exec muto-workstation ros2 launch nav2_bringup rviz_launch.py
 
 .PHONY: provision-workstation workstation-build workstation-deploy workstation-stop workstation-logs workstation-status workstation-shell workstation-rviz

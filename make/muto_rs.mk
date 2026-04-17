@@ -6,7 +6,6 @@
 ##
 
 -include config/.env.muto_rs
-export
 
 ROBOTS ?= $(ROBOT_LIST)
 

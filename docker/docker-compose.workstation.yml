@@ -7,8 +7,6 @@
 ##   docker compose --env-file config/.env.workstation -f docker/docker-compose.workstation.yml up -d
 ##
 
-version: '3.8'
-
 services:
   muto-workstation:
     image: ${MUTO_WS_IMAGE}:${IMAGE_ENV}
@@ -30,12 +28,12 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${HOME}/.Xauthority:${HOME}/.Xauthority:ro
-      # Mount local source for development (optional)
-      - ${VOLUME_MUTO_WS}:/muto_ws:delegated
+      # Mount local source for development without masking /muto_ws/install
+      - ${VOLUME_MUTO_WS_SRC}:/muto_ws/src:delegated
       - ./config/dds_config.xml:/etc/dds_config.xml:ro
       - muto_ws_data:/muto_ws_data
     
-    # Keep container running
+    # Interactive terminal support (optional)
     stdin_open: true
     tty: true
     

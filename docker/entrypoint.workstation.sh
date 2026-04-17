@@ -12,7 +12,7 @@
 ## Login   <diren.noukpo@epitech.eu>
 ##
 ## Started on  Thu Apr 16 1:18:32 PM 2026 dirennoukpo
-## Last update Fri Apr 16 3:36:27 PM 2026 dirennoukpo
+## Last update Fri Apr 16 11:15:27 PM 2026 dirennoukpo
 ##
 
 set -eo pipefail
@@ -99,15 +99,13 @@ echo "[entrypoint] ✓ Workspace sourced"
 
 echo "[entrypoint] ✅ Environment ready"
 echo ""
-echo "[entrypoint] Useful commands:"
-echo "  colcon build                          # Rebuild workspace"
-echo "  ros2 run muto_rs_synchronization dance_leader.py  # Start leader"
-echo "  ros2 run muto_rs_synchronization dance_follower.py # Start follower"
-echo "  ros2 launch muto_rs_synchronization dance_choreography.launch.py"
-echo ""
 
 # ─────────────────────────────────────────────────────────────
-# STEP 5: Execute command or start bash
+# STEP 5: Execute requested command or start the leader node
 # ─────────────────────────────────────────────────────────────
+
+if [ "$#" -eq 0 ]; then
+    set -- ros2 launch muto_rs_synchronization dance_choreography.launch.py mode:=leader
+fi
 
 exec "$@"

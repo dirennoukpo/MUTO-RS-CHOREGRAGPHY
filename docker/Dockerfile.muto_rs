@@ -159,4 +159,3 @@ USER muto
 WORKDIR /muto_ws
 
 ENTRYPOINT ["/entrypoint.muto_rs.sh"]
-CMD ["bash"]
