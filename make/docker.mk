@@ -7,14 +7,18 @@
 ## Targets:
 ##   make build ENV=muto-rs|workstation [PLATFORM=linux/arm64|linux/amd64] [CACHE=0]
 ##   make send-image SSH_HOST=user@host ENV=muto-rs|workstation
+##   make send-image-all ENV=muto-rs [ROBOTS="ip1 ip2"] [SSH_USER=muto]
 ##
 
-.PHONY: build send-image
+.PHONY: build send-image send-image-all
 
 ## Load environment variables (non-critical, may not exist yet)
 -include config/.env.muto_rs
 -include config/.env.workstation
 export
+
+ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
+SSH_USER ?= muto
 
 ## ─────────────────────────────────────────────────────────────
 ## BUILD VARIABLES
@@ -140,4 +144,24 @@ send-image: check-docker check-ssh ## Send image to remote device [SSH_HOST=user
 	echo "✅ Image sent successfully to $(SSH_HOST)"; \
 	echo "   Load on remote: ssh $(SSH_HOST) 'docker images | grep $(ENV)'"
 
-.PHONY: build send-image
+send-image-all: check-docker ## Send image to all robots listed in ROBOTS [ENV=muto-rs] [ROBOTS="ip1 ip2"]
+	@if [ -z "$(ENV)" ]; then \
+		echo "❌ ENV required. Usage: make send-image-all ENV=muto-rs|workstation"; \
+		exit 1; \
+	fi
+	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
+	@failed_hosts=""; \
+	for host in $(ROBOTS); do \
+		ssh_host="$$host"; \
+		case "$$host" in *@*) ;; *) ssh_host="$(SSH_USER)@$$host" ;; esac; \
+		echo "📤 Sending $(ENV) image to $$ssh_host"; \
+		if ! $(MAKE) send-image SSH_HOST=$$ssh_host ENV=$(ENV); then \
+			failed_hosts="$$failed_hosts $$ssh_host"; \
+		fi; \
+	done; \
+	if [ -n "$$failed_hosts" ]; then \
+		echo "❌ Image transfer failed for:$$failed_hosts"; \
+		exit 1; \
+	fi
+
+.PHONY: build send-image send-image-all

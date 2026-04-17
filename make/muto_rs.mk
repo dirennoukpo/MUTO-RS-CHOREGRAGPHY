@@ -10,7 +10,7 @@
 ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
 SSH_USER ?= muto
 
-.PHONY: provision-all provision-muto-rs muto-rs-deploy muto-rs-stop muto-rs-logs muto-rs-status
+.PHONY: provision-all provision-muto-rs muto-rs-deploy-all muto-rs-deploy muto-rs-stop muto-rs-logs muto-rs-status
 
 provision-all: ## Provision all robots listed in ROBOTS
 	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
@@ -59,6 +59,22 @@ muto-rs-deploy: ## Deploy the MUTO-RS stack [SSH_HOST=user@host]
 	@scp -q config/dds_config.xml $(SSH_HOST):~/muto_rs/config/
 	@ssh $(SSH_HOST) 'docker image inspect $(MUTO_RS_IMAGE):$(IMAGE_ENV) >/dev/null 2>&1 || (echo "❌ Image missing on robot: $(MUTO_RS_IMAGE):$(IMAGE_ENV)"; echo "   Run from workstation: make send-image SSH_HOST=$(SSH_HOST) ENV=muto-rs"; exit 1)'
 	@ssh $(SSH_HOST) 'cd ~/muto_rs && MUTO_RS_IMAGE=$(MUTO_RS_IMAGE) IMAGE_ENV=$(IMAGE_ENV) docker compose --env-file config/.env.muto_rs -f docker/docker-compose.muto_rs.yml up -d'
+
+muto-rs-deploy-all: ## Deploy the MUTO-RS stack on all robots listed in ROBOTS
+	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
+	@failed_hosts=""; \
+	for host in $(ROBOTS); do \
+		ssh_host="$$host"; \
+		case "$$host" in *@*) ;; *) ssh_host="$(SSH_USER)@$$host" ;; esac; \
+		echo "🚀 Deploying $$ssh_host"; \
+		if ! $(MAKE) muto-rs-deploy SSH_HOST=$$ssh_host; then \
+			failed_hosts="$$failed_hosts $$ssh_host"; \
+		fi; \
+	done; \
+	if [ -n "$$failed_hosts" ]; then \
+		echo "❌ Deploy failed for:$$failed_hosts"; \
+		exit 1; \
+	fi
 
 muto-rs-stop: ## Stop the MUTO-RS stack [SSH_HOST=user@host]
 	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
