@@ -7,13 +7,26 @@
 
 -include config/.env.muto_rs
 
-ROBOTS ?= $(ROBOT_LIST)
+ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
+SSH_USER ?= muto
 
 .PHONY: provision-all provision-muto-rs muto-rs-deploy muto-rs-stop muto-rs-logs muto-rs-status
 
 provision-all: ## Provision all robots listed in ROBOTS
 	@if [ -z "$(ROBOTS)" ]; then echo "❌ ROBOTS not set"; exit 1; fi
-	@for host in $(ROBOTS); do echo "🤖 Provisioning $$host"; done
+	@failed_hosts=""; \
+	for host in $(ROBOTS); do \
+		ssh_host="$$host"; \
+		case "$$host" in *@*) ;; *) ssh_host="$(SSH_USER)@$$host" ;; esac; \
+		echo "🤖 Provisioning $$ssh_host"; \
+		if ! $(MAKE) provision-muto-rs SSH_HOST=$$ssh_host; then \
+			failed_hosts="$$failed_hosts $$ssh_host"; \
+		fi; \
+	done; \
+	if [ -n "$$failed_hosts" ]; then \
+		echo "❌ Provisioning failed for:$$failed_hosts"; \
+		exit 1; \
+	fi
 
 provision-muto-rs: ## Provision a MUTO-RS robot remotely [SSH_HOST=user@host]
 	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
