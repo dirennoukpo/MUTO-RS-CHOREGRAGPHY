@@ -19,10 +19,15 @@ provision-muto-rs: ## Provision a MUTO-RS robot remotely [SSH_HOST=user@host]
 	@if [ -z "$(SSH_HOST)" ]; then echo "❌ SSH_HOST required"; exit 1; fi
 	@echo "🤖 Provisioning MUTO-RS at $(SSH_HOST)..."
 	@test -f scripts/provision_muto_rs.sh || exit 1
+	@test -f scripts/utils.sh || exit 1
 	@ssh $(SSH_HOST) 'mkdir -p /tmp/muto_provision'
+	@scp -q scripts/utils.sh $(SSH_HOST):/tmp/muto_provision/
 	@scp -q scripts/provision_muto_rs.sh $(SSH_HOST):/tmp/muto_provision/
 	@scp -q docker/docker-compose.muto_rs.yml $(SSH_HOST):/tmp/muto_provision/
 	@scp -q config/.env.muto_rs.example $(SSH_HOST):/tmp/muto_provision/
+	@if [ -f config/.env.muto_rs ]; then \
+		scp -q config/.env.muto_rs $(SSH_HOST):/tmp/muto_provision/; \
+	fi
 	@scp -q config/dds_config.xml $(SSH_HOST):/tmp/muto_provision/
 	@ssh -t $(SSH_HOST) 'cd /tmp/muto_provision && bash provision_muto_rs.sh'
 	@ssh $(SSH_HOST) 'rm -rf /tmp/muto_provision'

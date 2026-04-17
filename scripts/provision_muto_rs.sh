@@ -50,19 +50,26 @@ log "📦 Setting up deployment structure"
 mkdir -p "$HOME/muto_rs"/{docker,config}
 mkdir -p "$HOME/muto_rs_data"/{logs,rosbags,backups}
 
-if [ -f "/tmp/docker-compose.muto_rs.yml" ]; then
-	cp /tmp/docker-compose.muto_rs.yml "$HOME/muto_rs/docker/"
+if [ -f "$SCRIPT_DIR/docker-compose.muto_rs.yml" ]; then
+    cp "$SCRIPT_DIR/docker-compose.muto_rs.yml" "$HOME/muto_rs/docker/"
 	log "Copied docker-compose.muto_rs.yml"
 fi
 
-if [ -f "/tmp/.env.muto_rs.example" ] && [ ! -f "$HOME/muto_rs/config/.env.muto_rs" ]; then
-	cp /tmp/.env.muto_rs.example "$HOME/muto_rs/config/.env.muto_rs.example"
-	cp /tmp/.env.muto_rs.example "$HOME/muto_rs/config/.env.muto_rs"
-	log "Initialized .env.muto_rs from example"
+if [ -f "$SCRIPT_DIR/.env.muto_rs.example" ]; then
+    cp "$SCRIPT_DIR/.env.muto_rs.example" "$HOME/muto_rs/config/.env.muto_rs.example"
+    log "Copied .env.muto_rs.example"
 fi
 
-if [ -f "/tmp/dds_config.xml" ]; then
-    cp /tmp/dds_config.xml "$HOME/muto_rs/config/"
+if [ -f "$SCRIPT_DIR/.env.muto_rs" ]; then
+    cp "$SCRIPT_DIR/.env.muto_rs" "$HOME/muto_rs/config/.env.muto_rs"
+    log "Copied .env.muto_rs"
+elif [ -f "$SCRIPT_DIR/.env.muto_rs.example" ] && [ ! -f "$HOME/muto_rs/config/.env.muto_rs" ]; then
+    cp "$SCRIPT_DIR/.env.muto_rs.example" "$HOME/muto_rs/config/.env.muto_rs"
+    log "Initialized .env.muto_rs from example"
+fi
+
+if [ -f "$SCRIPT_DIR/dds_config.xml" ]; then
+    cp "$SCRIPT_DIR/dds_config.xml" "$HOME/muto_rs/config/"
     log "Copied dds_config.xml"
 fi
 
@@ -84,7 +91,9 @@ fi
 # ─────────────────────────────────────────────────────────────
 
 log "⚙️ Configuring hardware interfaces"
-sudo raspi-config nonint do_serial 0 2>/dev/null || warn "Serial config skipped"
+# Keep UART enabled for hardware, disable serial login shell to avoid interactive prompts.
+sudo raspi-config nonint do_serial_hw 0 2>/dev/null || warn "Serial HW enable skipped"
+sudo raspi-config nonint do_serial_cons 1 2>/dev/null || warn "Serial console disable skipped"
 sudo raspi-config nonint do_i2c 0 2>/dev/null || warn "I2C config skipped"
 sudo raspi-config nonint do_ssh 0 2>/dev/null || warn "SSH config skipped"
 log "✅ Hardware interfaces configured"
