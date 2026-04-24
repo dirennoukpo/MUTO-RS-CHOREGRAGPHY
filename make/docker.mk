@@ -134,14 +134,24 @@ send-image: check-docker check-ssh ## Send image to remote device [SSH_HOST=user
 		(echo "❌ Image not found: $$IMAGE_TO_SEND" && \
 		 echo "   Run: make build ENV=$(ENV)" && exit 1); \
 	echo "📤 Transferring image (this may take a few minutes)..."; \
+	DOCKER_CMD="docker load"; \
 	if command -v pv >/dev/null 2>&1; then \
 		SIZE=$$(docker image inspect "$$IMAGE_TO_SEND" --format='{{.Size}}'); \
-		docker save "$$IMAGE_TO_SEND" | pv -s $$SIZE --width 50 | ssh $(SSH_HOST) 'docker load'; \
+		if docker save "$$IMAGE_TO_SEND" | pv -s $$SIZE --width 50 | ssh $(SSH_HOST) "$$DOCKER_CMD || sudo $$DOCKER_CMD"; then \
+			echo "✅ Image sent successfully to $(SSH_HOST)"; \
+		else \
+			echo "❌ Failed to load image on $(SSH_HOST): docker load failed"; \
+			exit 1; \
+		fi; \
 	else \
-		docker save "$$IMAGE_TO_SEND" | ssh $(SSH_HOST) 'docker load'; \
-		echo "💡 Install 'pv' for progress: sudo apt-get install pv"; \
+		if docker save "$$IMAGE_TO_SEND" | ssh $(SSH_HOST) "$$DOCKER_CMD || sudo $$DOCKER_CMD"; then \
+			echo "✅ Image sent successfully to $(SSH_HOST)"; \
+			echo "💡 Install 'pv' for progress: sudo apt-get install pv"; \
+		else \
+			echo "❌ Failed to load image on $(SSH_HOST): docker load failed"; \
+			exit 1; \
+		fi; \
 	fi; \
-	echo "✅ Image sent successfully to $(SSH_HOST)"; \
 	echo "   Load on remote: ssh $(SSH_HOST) 'docker images | grep $(ENV)'"
 
 send-image-all: check-docker ## Send image to all robots listed in ROBOTS [ENV=muto-rs] [ROBOTS="ip1 ip2"]

@@ -115,6 +115,16 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker "$USER" || true
 log "Docker daemon enabled and user added to docker group"
 
+# Force group membership to take effect immediately (without logout/in)
+# This ensures docker is accessible right after provisioning
+if ! newgrp docker <<'GROUPTEST'; then
+    docker --version >/dev/null 2>&1
+GROUPTEST
+    warn "Docker group membership may require logout/in to take effect"
+else
+    log "Docker group membership activated immediately"
+fi
+
 # ─────────────────────────────────────────────────────────────
 # STEP 7: Configure Hardware Permissions
 # ─────────────────────────────────────────────────────────────
@@ -124,7 +134,7 @@ log "🔐 Configuring hardware permissions"
 sudo usermod -aG gpio,i2c,dialout $USER || true
 
 log "User groups configured (gpio, i2c, dialout)"
-warn "You may need to log out and back in for groups to take effect"
+warn "You may need to log out and back in for groups to take effect (or restart SSH session)"
 
 # ─────────────────────────────────────────────────────────────
 # STEP 8: Install Tailscale (VPN for multi-robot networks)

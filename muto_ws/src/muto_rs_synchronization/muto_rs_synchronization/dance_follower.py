@@ -68,8 +68,9 @@ class RobotController:
         self._log(f"{direction}({self.step_width})")
         if self.dry_run or self._bot is None:
             return
+        # Use action(4) as warm-up step for the "forward" slot.
         fn_map = {
-            "forward": self._bot.forward,
+            "forward": (lambda _step: self._bot.action(4)),
             "back": self._bot.back,
             "left": self._bot.left,
             "right": self._bot.right,
