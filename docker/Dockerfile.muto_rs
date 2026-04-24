@@ -45,40 +45,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-colcon-common-extensions \
     python3-rosdep \
+    python3-serial \
     build-essential \
     cmake \
     git \
-    i2c-tools \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # ─────────────────────────────────────────────────────────────
-# STEP 3: Install Robot-Specific Dependencies
-# ─────────────────────────────────────────────────────────────
-
-# GPIO, hardware drivers
-RUN pip3 install --no-cache-dir \
-    rpi.gpio \
-    adafruit-blinka \
-    adafruit-circuitpython-servokit \
-    board
-
-# Audio libraries for choreography
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libfftw3-dev \
-    libsndfile1-dev \
-    libsamplerate0-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install --no-cache-dir \
-    numpy \
-    scipy \
-    librosa \
-    soundfile
-
-# ─────────────────────────────────────────────────────────────
-# STEP 4: Initialize rosdep
+# STEP 3: Initialize rosdep
 # ─────────────────────────────────────────────────────────────
 
 RUN rosdep init || true && \
