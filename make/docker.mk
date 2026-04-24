@@ -18,7 +18,7 @@
 export
 
 ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
-SSH_USER ?= muto
+SSH_USER ?= tekbot
 
 ## ─────────────────────────────────────────────────────────────
 ## BUILD VARIABLES

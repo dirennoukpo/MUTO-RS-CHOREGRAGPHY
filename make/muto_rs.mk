@@ -8,7 +8,7 @@
 -include config/.env.muto_rs
 
 ROBOTS ?= $(strip $(subst ",,$(ROBOT_LIST)))
-SSH_USER ?= muto
+SSH_USER ?= tekbot
 
 .PHONY: provision-all provision-muto-rs muto-rs-deploy-all muto-rs-deploy muto-rs-stop-all muto-rs-stop muto-rs-logs muto-rs-status
 
