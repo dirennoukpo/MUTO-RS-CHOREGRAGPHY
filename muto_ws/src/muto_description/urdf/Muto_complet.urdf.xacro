@@ -1,0 +1,113 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org" name="muto_robot">
+
+    <!-- 1. Inclure votre fichier URDF original -->
+    <xacro:include filename="Muto.urdf" />
+
+    <!-- 2. Ajouter la configuration ros2_control par-dessus -->
+    <ros2_control name="MutoHardwareInterface" type="system">
+        <hardware>
+            <plugin>topic_based_ros2_control/TopicBasedSystemInterface</plugin>
+        </hardware>
+
+        <!-- Déclaration de vos 18 articulations -->
+
+        <!-- zq -->
+        <joint name="zq1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zq2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zq3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <!-- zz -->
+        <joint name="zz1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zz2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zz3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <!-- zh -->
+        <joint name="zh1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zh2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="zh3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <!-- yq -->
+        <joint name="yq1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yq2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yq3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <!-- yz -->
+        <joint name="yz1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yz2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yz3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <!-- yh -->
+        <joint name="yh1_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yh2_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+        <joint name="yh3_Joint">
+            <command_interface name="position"/>
+            <state_interface name="position"/>
+        </joint>
+
+    </ros2_control>
+
+</robot>

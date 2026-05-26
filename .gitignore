@@ -28,6 +28,8 @@ __pycache__/
 # Local environment files
 .env
 !.env.*
+
+# build directory workspace
 muto_ws/build
 muto_ws/install
 muto_ws/log
