@@ -1,0 +1,16 @@
+services:
+  muto_rs:
+    build:
+      context: .
+      dockerfile: Dockerfile.muto_rs
+    container_name: muto_rs
+    env_file:
+      - .env
+    volumes:
+      - ./muto_ws:/muto_ws   # ton workspace local monté dans le container
+    devices:
+      - /dev:/dev            # accès complet aux devices du host
+    privileged: true          # nécessaire pour /dev et USB
+    network_mode: host        # ROS2 DDS fonctionne mieux en mode host
+    restart: unless-stopped
+    command: bash             # par défaut, shell interactif
