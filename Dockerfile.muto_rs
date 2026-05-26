@@ -6,9 +6,34 @@
 ARG ROS_DISTRO=jazzy
 FROM ros:${ROS_DISTRO}-ros-base AS muto_rs
 
-ARG USER_ID
-ARG GROUP_ID
 ARG DEBIAN_FRONTEND=noninteractive
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+ARG USERNAME=rosmaster
+
+# Renommer l'utilisateur existant uid=1000 en rosmaster
+# et lui donner les mêmes groupes supplémentaires que l'hôte
+RUN existing_user=$(getent passwd ${USER_ID} | cut -d: -f1) && \
+    if [ -n "$existing_user" ] && [ "$existing_user" != "$USERNAME" ]; then \
+        usermod -l ${USERNAME} ${existing_user} && \
+        groupmod -n ${USERNAME} ${existing_user} 2>/dev/null || true && \
+        usermod -d /home/${USERNAME} -m ${USERNAME} 2>/dev/null || true; \
+    elif ! id ${USERNAME} > /dev/null 2>&1; then \
+        groupadd -g ${GROUP_ID} ${USERNAME} && \
+        useradd -u ${USER_ID} -g ${GROUP_ID} -m -s /bin/bash ${USERNAME}; \
+    fi && \
+    # Groupes supplémentaires (miroir hôte : dialout, audio, video, sudo, etc.)
+    groupadd -f dialout || true && \
+    groupadd -f audio    || true && \
+    groupadd -f video    || true && \
+    groupadd -f plugdev  || true && \
+    groupadd -f input    || true && \
+    groupadd -f render   || true && \
+    groupadd -f netdev   || true && \
+    groupadd -f sudo     || true && \
+    usermod -aG dialout,audio,video,plugdev,input,render,netdev,sudo ${USERNAME} && \
+    # sudo sans mot de passe
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Dépendances système minimales
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -61,15 +86,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # rosdep init + update
 RUN rosdep init 2>/dev/null || true && rosdep update --rosdistro ${ROS_DISTRO}
 
-# Utilisateur rosdev
-RUN groupadd -g ${GROUP_ID} rosdev && \
-    useradd -u ${USER_ID} -g ${GROUP_ID} -m -s /bin/bash rosdev && \
-    usermod -aG dialout rosdev && \
-    usermod -aG plugdev rosdev
+# Fichier FastDDS minimal
+RUN mkdir -p /etc/fastdds && \
+    printf '<?xml version="1.0" encoding="UTF-8" ?>\n<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">\n</profiles>\n' \
+    > /etc/fastdds/fastdds_base.xml
 
 # Workspace
-RUN mkdir -p /muto_ws && \
-    chown -R ${USER_ID}:${GROUP_ID} /muto_ws
+RUN mkdir -p /muto_ws && chown -R ${USER_ID}:${GROUP_ID} /muto_ws
 
 COPY muto_ws/src /muto_ws/src
 WORKDIR /muto_ws
@@ -89,14 +112,15 @@ RUN bash -c "\
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Sourcing bashrc pour rosdev
-RUN printf '%s\n' \
-    "source /opt/ros/${ROS_DISTRO}/setup.bash" \
-    "[ -f /muto_ws/install/setup.bash ] && source /muto_ws/install/setup.bash" \
-    "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp" \
-    "export FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_base.xml" \
-    >> /home/rosdev/.bashrc
+# Bashrc rosmaster
+RUN mkdir -p /home/${USERNAME} && chown ${USER_ID}:${GROUP_ID} /home/${USERNAME} && \
+    printf '%s\n' \
+        "source /opt/ros/${ROS_DISTRO}/setup.bash" \
+        "[ -f /muto_ws/install/setup.bash ] && source /muto_ws/install/setup.bash" \
+        "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp" \
+        "export FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_base.xml" \
+    >> /home/${USERNAME}/.bashrc
 
-USER rosdev
+USER ${USERNAME}
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]

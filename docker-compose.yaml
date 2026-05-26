@@ -3,14 +3,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.muto_rs
-    container_name: muto_rs
+      args:
+        ROS_DISTRO: ${ROS_DISTRO}
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+        USERNAME: ${USERNAME:-rosmaster}
     env_file:
       - .env
     volumes:
-      - ./muto_ws:/muto_ws   # ton workspace local monté dans le container
+      - ./muto_ws:/muto_ws
     devices:
-      - /dev:/dev            # accès complet aux devices du host
-    privileged: true          # nécessaire pour /dev et USB
-    network_mode: host        # ROS2 DDS fonctionne mieux en mode host
+      - /dev:/dev
+    privileged: true
+    network_mode: host
     restart: unless-stopped
-    command: bash             # par défaut, shell interactif
+    stdin_open: true
+    tty: true
