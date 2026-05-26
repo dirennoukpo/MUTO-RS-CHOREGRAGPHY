@@ -1,0 +1,33 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50  # Fréquence de contrôle (50Hz est parfait pour vos servos de 20ms)
+
+    # Déclaration des deux contrôleurs indispensables
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    muto_leg_controller:
+      type: position_controllers/JointGroupPositionController
+
+muto_leg_controller:
+  ros__parameters:
+    # Liste exacte de vos 18 articulations
+    joints:
+      - zq1_Joint
+      - zq2_Joint
+      - zq3_Joint
+      - zz1_Joint
+      - zz2_Joint
+      - zz3_Joint
+      - zh1_Joint
+      - zh2_Joint
+      - zh3_Joint
+      - yq1_Joint
+      - yq2_Joint
+      - yq3_Joint
+      - yz1_Joint
+      - yz2_Joint
+      - yz3_Joint
+      - yh1_Joint
+      - yh2_Joint
+      - yh3_Joint
