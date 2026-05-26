@@ -1,0 +1,10 @@
+<library path="muto_hardware">
+  <class name="muto_hardware/MutoHexapodHardware"
+         type="muto_hardware::MutoHexapodHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      ros2_control plugin for the MUTO-RS hexapod.
+      Controls 18 servos over USB serial using muto_link.
+    </description>
+  </class>
+</library>

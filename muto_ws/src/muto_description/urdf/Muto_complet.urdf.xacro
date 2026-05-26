@@ -1,113 +1,158 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://ros.org" name="muto_robot">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="muto_robot">
 
-    <!-- 1. Inclure votre fichier URDF original -->
-    <xacro:include filename="Muto.urdf" />
+  <xacro:include filename="$(find muto_description)/urdf/Muto.urdf"/>
 
-    <!-- 2. Ajouter la configuration ros2_control par-dessus -->
-    <ros2_control name="MutoHardwareInterface" type="system">
-        <hardware>
-            <plugin>topic_based_ros2_control/TopicBasedSystemInterface</plugin>
-        </hardware>
+  <ros2_control name="MutoHardwareInterface" type="system">
+    <hardware>
+      <plugin>muto_hardware/MutoHexapodHardware</plugin>
+      <param name="port">/dev/ttyUSB0</param>
+      <param name="baud">115200</param>
+      <param name="read_timeout_sec">0.05</param>
+      <param name="retry_count">2</param>
+      <param name="validate_checksum">true</param>
+      <param name="servo_speed">300</param>
+      <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
+    </hardware>
 
-        <!-- Déclaration de vos 18 articulations -->
+    <!-- zq - front right -->
+    <joint name="zq1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zq2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zq3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <!-- zq -->
-        <joint name="zq1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
+    <!-- zz - mid right -->
+    <joint name="zz1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zz2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zz3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <joint name="zq2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
+    <!-- zh - rear right -->
+    <joint name="zh1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zh2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zh3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <joint name="zq3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
+    <!-- yq - front left -->
+    <joint name="yq1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yq2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yq3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <!-- zz -->
-        <joint name="zz1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
+    <!-- yz - mid left -->
+    <joint name="yz1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yz2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yz3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <joint name="zz2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
+    <!-- yh - rear left -->
+    <joint name="yh1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yh2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="yh3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
 
-        <joint name="zz3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <!-- zh -->
-        <joint name="zh1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="zh2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="zh3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <!-- yq -->
-        <joint name="yq1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yq2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yq3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <!-- yz -->
-        <joint name="yz1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yz2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yz3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <!-- yh -->
-        <joint name="yh1_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yh2_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-        <joint name="yh3_Joint">
-            <command_interface name="position"/>
-            <state_interface name="position"/>
-        </joint>
-
-    </ros2_control>
+  </ros2_control>
 
 </robot>

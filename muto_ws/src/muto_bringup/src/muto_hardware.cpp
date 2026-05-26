@@ -49,7 +49,40 @@ double protocol_to_degrees(uint8_t angle_byte) {
     : (static_cast<double>(protocol_angle) / 127.0) * 90.0;
 }
 
+bool parse_bool_token(const std::string & token, bool & out_value) {
+  if (token.empty()) {
+    return false;
+  }
+  std::string lowered = token;
+  std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (lowered == "true" || lowered == "1" || lowered == "yes" || lowered == "on") {
+    out_value = true;
+    return true;
+  }
+  if (lowered == "false" || lowered == "0" || lowered == "no" || lowered == "off") {
+    out_value = false;
+    return true;
+  }
+  return false;
+}
+
+bool parse_double_token(const std::string & token, double & out_value) {
+  if (token.empty()) {
+    return false;
+  }
+  try {
+    std::size_t idx = 0;
+    out_value = std::stod(token, &idx);
+    return idx == token.size();
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
 }  // namespace
+
+using CallbackReturn = hardware_interface::CallbackReturn;
 
 // ─── Classe principale ────────────────────────────────────────────────────────
 
@@ -62,7 +95,7 @@ public:
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
   CallbackReturn on_activate  (const rclcpp_lifecycle::State & previous_state) override;
-  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) override;
+  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) noexcept override;
 
   hardware_interface::return_type read (const rclcpp::Time & time, const rclcpp::Duration & period) override;
   hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
@@ -71,6 +104,8 @@ private:
   // FIX : séparation validation joints / validation IDs
   bool validate_joint_interfaces(const hardware_interface::HardwareInfo & info) const;
   bool parse_servo_ids(const std::string & raw, std::vector<uint8_t> & out_ids) const;
+  bool parse_bool_list(const std::string & raw, std::vector<bool> & out_values) const;
+  bool parse_double_list(const std::string & raw, std::vector<double> & out_values) const;
 
   // Libère le driver proprement (torqueOff best-effort puis close)
   void release_driver() noexcept;
@@ -87,6 +122,8 @@ private:
   uint16_t     servo_speed_{kDefaultServoSpeed};
 
   std::vector<uint8_t> servo_ids_;
+  std::vector<bool>    servo_inversions_;
+  std::vector<double>  servo_offsets_deg_;
   std::vector<double>  command_positions_;
   std::vector<double>  state_positions_;
 };
@@ -224,6 +261,68 @@ CallbackReturn MutoHexapodHardware::on_init(
     }
   }
 
+  // --- servo_inversions (optionnel) ---
+  servo_inversions_.assign(info_.joints.size(), false);
+  bool inversions_set = false;
+  const auto inversions_it = params_map.find("servo_inversions");
+  if (inversions_it != params_map.end() && !inversions_it->second.empty()) {
+    std::vector<bool> parsed;
+    if (parse_bool_list(inversions_it->second, parsed)) {
+      if (parsed.size() == 1) {
+        servo_inversions_.assign(info_.joints.size(), parsed.front());
+      } else if (parsed.size() == info_.joints.size()) {
+        servo_inversions_ = parsed;
+      } else {
+        RCLCPP_WARN(logger_, "servo_inversions size (%zu) must be 1 or %zu, ignoring",
+          parsed.size(), info_.joints.size());
+      }
+      inversions_set = true;
+    } else {
+      RCLCPP_WARN(logger_, "Invalid servo_inversions '%s', ignoring",
+        inversions_it->second.c_str());
+    }
+  }
+
+  // --- servo_invert_ids (optionnel) ---
+  const auto invert_ids_it = params_map.find("servo_invert_ids");
+  if (invert_ids_it != params_map.end() && !invert_ids_it->second.empty()) {
+    std::vector<uint8_t> invert_ids;
+    if (parse_servo_ids(invert_ids_it->second, invert_ids)) {
+      if (inversions_set) {
+        RCLCPP_WARN(logger_,
+          "servo_inversions already set; servo_invert_ids will be OR'ed with existing flags");
+      }
+      for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
+        if (std::find(invert_ids.begin(), invert_ids.end(), servo_ids_[i]) != invert_ids.end()) {
+          servo_inversions_[i] = true;
+        }
+      }
+    } else {
+      RCLCPP_WARN(logger_, "Invalid servo_invert_ids '%s', ignoring",
+        invert_ids_it->second.c_str());
+    }
+  }
+
+  // --- servo_offsets (optionnel, en degres) ---
+  servo_offsets_deg_.assign(info_.joints.size(), 0.0);
+  const auto offsets_it = params_map.find("servo_offsets");
+  if (offsets_it != params_map.end() && !offsets_it->second.empty()) {
+    std::vector<double> parsed;
+    if (parse_double_list(offsets_it->second, parsed)) {
+      if (parsed.size() == 1) {
+        servo_offsets_deg_.assign(info_.joints.size(), parsed.front());
+      } else if (parsed.size() == info_.joints.size()) {
+        servo_offsets_deg_ = parsed;
+      } else {
+        RCLCPP_WARN(logger_, "servo_offsets size (%zu) must be 1 or %zu, ignoring",
+          parsed.size(), info_.joints.size());
+      }
+    } else {
+      RCLCPP_WARN(logger_, "Invalid servo_offsets '%s', ignoring",
+        offsets_it->second.c_str());
+    }
+  }
+
   command_positions_.assign(info_.joints.size(), 0.0);
   state_positions_.assign(info_.joints.size(), 0.0);
 
@@ -305,7 +404,8 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State & 
 
 // ─── on_deactivate ────────────────────────────────────────────────────────────
 
-CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State & /*previous_state*/) {
+CallbackReturn MutoHexapodHardware::on_deactivate(
+  const rclcpp_lifecycle::State & /*previous_state*/) noexcept {
   // FIX : release_driver() est noexcept et centralise torqueOff + close.
   //       On ne retourne jamais ERROR ici pour ne pas bloquer le lifecycle.
   release_driver();
@@ -341,7 +441,11 @@ hardware_interface::return_type MutoHexapodHardware::read(
       const uint8_t servo_id = servo_ids_[i];
       const double angle_deg = protocol_to_degrees(
         raw[static_cast<std::size_t>(servo_id - 1)]);
-      state_positions_[i] = angle_deg * kDegToRad;
+      double ros_deg = angle_deg - servo_offsets_deg_[i];
+      if (servo_inversions_[i]) {
+        ros_deg = -ros_deg;
+      }
+      state_positions_[i] = ros_deg * kDegToRad;
     }
   } catch (const std::exception & e) {
     RCLCPP_ERROR(logger_, "Read failed: %s", e.what());
@@ -376,7 +480,11 @@ hardware_interface::return_type MutoHexapodHardware::write(
       continue;
     }
 
-    const double  angle_deg = command_rad * kRadToDeg;
+    double angle_deg = command_rad * kRadToDeg;
+    if (servo_inversions_[i]) {
+      angle_deg = -angle_deg;
+    }
+    angle_deg += servo_offsets_deg_[i];
     const int16_t angle_cmd = static_cast<int16_t>(std::lround(angle_deg));
 
     try {
@@ -461,6 +569,60 @@ bool MutoHexapodHardware::parse_servo_ids(
   }
 
   return !out_ids.empty();
+}
+
+// ─── parse_bool_list ────────────────────────────────────────────────────────
+
+bool MutoHexapodHardware::parse_bool_list(
+  const std::string & raw, std::vector<bool> & out_values) const
+{
+  out_values.clear();
+  if (raw.empty()) { return false; }
+
+  std::string normalized = raw;
+  std::replace(normalized.begin(), normalized.end(), ',', ' ');
+  std::replace(normalized.begin(), normalized.end(), ';', ' ');
+
+  std::istringstream stream(normalized);
+  std::string token;
+  while (stream >> token) {
+    bool value = false;
+    if (!parse_bool_token(token, value)) {
+      RCLCPP_ERROR(logger_, "servo_inversions contains invalid token '%s'", token.c_str());
+      out_values.clear();
+      return false;
+    }
+    out_values.push_back(value);
+  }
+
+  return !out_values.empty();
+}
+
+// ─── parse_double_list ──────────────────────────────────────────────────────
+
+bool MutoHexapodHardware::parse_double_list(
+  const std::string & raw, std::vector<double> & out_values) const
+{
+  out_values.clear();
+  if (raw.empty()) { return false; }
+
+  std::string normalized = raw;
+  std::replace(normalized.begin(), normalized.end(), ',', ' ');
+  std::replace(normalized.begin(), normalized.end(), ';', ' ');
+
+  std::istringstream stream(normalized);
+  std::string token;
+  while (stream >> token) {
+    double value = 0.0;
+    if (!parse_double_token(token, value)) {
+      RCLCPP_ERROR(logger_, "servo_offsets contains invalid token '%s'", token.c_str());
+      out_values.clear();
+      return false;
+    }
+    out_values.push_back(value);
+  }
+
+  return !out_values.empty();
 }
 
 }  // namespace muto_hardware

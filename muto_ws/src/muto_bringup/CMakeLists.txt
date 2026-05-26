@@ -5,31 +5,67 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
 
-add_executable(muto_hardware src/muto_hardware.cpp)
+# -- muto_link (low-level communication library) --
+add_library(muto_link SHARED
+  src/muto_link/transport.cpp
+  src/muto_link/protocol.cpp
+  src/muto_link/driver.cpp
+  src/muto_link/sensor.cpp
+  src/muto_link/c_api.cpp
+)
+
+target_include_directories(muto_link PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_compile_definitions(muto_link PRIVATE MUTO_LINK_CPP_EXPORTS)
+
+target_compile_features(muto_link PUBLIC cxx_std_17)
+
+# -- muto_hardware (ros2_control plugin) --
+add_library(muto_hardware SHARED
+  src/muto_hardware.cpp
+)
+
 target_include_directories(muto_hardware PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
-target_compile_features(muto_hardware PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
+  $<INSTALL_INTERFACE:include>
+)
 
-install(TARGETS muto_hardware
-  DESTINATION lib/${PROJECT_NAME})
+target_link_libraries(muto_hardware muto_link)
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
+ament_target_dependencies(muto_hardware
+  rclcpp
+  rclcpp_lifecycle
+  hardware_interface
+  pluginlib
+)
+
+target_compile_features(muto_hardware PUBLIC cxx_std_17)
+
+pluginlib_export_plugin_description_file(hardware_interface muto_hardware_plugin.xml)
+
+# -- Install --
+install(TARGETS muto_link muto_hardware
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY include/ DESTINATION include)
+install(FILES muto_hardware_plugin.xml DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+
+ament_export_include_directories(include)
+ament_export_libraries(muto_link muto_hardware)
+ament_export_targets(export_${PROJECT_NAME})
 
 ament_package()

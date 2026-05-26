@@ -100,8 +100,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zq2_Link">
@@ -158,8 +158,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zq3_Link">
@@ -216,8 +216,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zz1_Link">
@@ -274,8 +274,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zz2_Link">
@@ -332,8 +332,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zz3_Link">
@@ -390,8 +390,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zh1_Link">
@@ -448,8 +448,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zh2_Link">
@@ -506,8 +506,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="zh3_Link">
@@ -564,8 +564,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yq1_Link">
@@ -622,8 +622,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yq2_Link">
@@ -680,8 +680,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yq3_Link">
@@ -738,8 +738,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yz1_Link">
@@ -796,8 +796,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yz2_Link">
@@ -854,8 +854,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yz3_Link">
@@ -912,8 +912,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yh1_Link">
@@ -970,8 +970,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yh2_Link">
@@ -1014,7 +1014,7 @@
     </collision>
   </link>
   <joint
-    name="yh2_Link"
+    name="yh2_Joint"
     type="revolute">
     <origin
       xyz="-0.055226635669978 -0.0165734288280502 -0.027473927115545"
@@ -1028,8 +1028,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="yh3_Link">
@@ -1072,7 +1072,7 @@
     </collision>
   </link>
   <joint
-    name="yh3_Link"
+    name="yh3_Joint"
     type="revolute">
     <origin
       xyz="-0.0497740601308654 -0.0504179449064808 0.0158615312365509"
@@ -1086,8 +1086,8 @@
     <limit
       lower="-1.57"
       upper="1.57"
-      effort="0"
-      velocity="0" />
+      effort="2.5"
+      velocity="3.14" />
   </joint>
   <link
     name="imu_link">
