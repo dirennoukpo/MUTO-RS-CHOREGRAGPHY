@@ -99,6 +99,16 @@ RUN wget https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERS
 
 ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
+# Installation de toutes les dépendances de simulation (Gazebo, Bridges, Contrôleurs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-joint-state-broadcaster \
+    ros-${ROS_DISTRO}-position-controllers \
+    ros-${ROS_DISTRO}-ros-gz-sim \
+    ros-${ROS_DISTRO}-gz-ros2-control \
+    ros-${ROS_DISTRO}-ros-gz-bridge \
+    && rm -rf /var/lib/apt/lists/*
+
+
 # Fichier FastDDS minimal
 RUN mkdir -p /etc/fastdds && \
     printf '<?xml version="1.0" encoding="UTF-8" ?>\n<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">\n</profiles>\n' \
