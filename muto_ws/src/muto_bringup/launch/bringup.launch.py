@@ -37,9 +37,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    # Attendre 2s que le controller_manager soit prêt (hardware initialisé,
-    # service /controller_manager/list_controllers disponible) avant de spawner.
-    # OnProcessStart déclenche dès le fork du process, pas dès que le node est prêt.
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -58,13 +55,29 @@ def generate_launch_description():
         ],
     )
 
+    # ─── NŒUD D'INFÉRENCE DE LA POLITIQUE IA (C++) ───
+    # Ce nœud charge le modèle ONNX et pilote le leg_controller à 50Hz.
+    # Vous pouvez écraser le nom de la politique au lancement via les arguments ROS si besoin.
+    muto_policy_node = Node(
+        package="muto_bringup",
+        executable="muto_policy_node",
+        name="muto_policy_inference_node",
+        parameters=[
+            {"policy_path": "muto_walk_policy.onnx"} # Cherchera dans muto_description/config/
+        ],
+        output="screen",
+    )
+
     return LaunchDescription([
         robot_state_publisher,
         controller_manager,
 
-        # Délai fixe: laisse le temps au controller_manager de charger le URDF
+        # Délai fixe : laisse le temps au controller_manager de charger le URDF
         # et d'initialiser le hardware (/dev/ttyUSB0) avant de spawner.
-        # 2s est largement suffisant sur RPi (mesuré ~0.2s dans les logs).
         TimerAction(period=2.0, actions=[joint_state_broadcaster_spawner]),
         TimerAction(period=3.0, actions=[leg_controller_spawner]),
+
+        # Sécurité : On attend que le leg_controller soit pleinement fonctionnel (à T=3s) 
+        # avant d'activer le flux de commandes de la politique d'apprentissage (à T=4s).
+        TimerAction(period=4.0, actions=[muto_policy_node]),
     ])

@@ -12,7 +12,6 @@ ARG GROUP_ID=1000
 ARG USERNAME=rosmaster
 
 # Renommer l'utilisateur existant uid=1000 en rosmaster
-# et lui donner les mêmes groupes supplémentaires que l'hôte
 RUN existing_user=$(getent passwd ${USER_ID} | cut -d: -f1) && \
     if [ -n "$existing_user" ] && [ "$existing_user" != "$USERNAME" ]; then \
         usermod -l ${USERNAME} ${existing_user} && \
@@ -22,7 +21,6 @@ RUN existing_user=$(getent passwd ${USER_ID} | cut -d: -f1) && \
         groupadd -g ${GROUP_ID} ${USERNAME} && \
         useradd -u ${USER_ID} -g ${GROUP_ID} -m -s /bin/bash ${USERNAME}; \
     fi && \
-    # Groupes supplémentaires (miroir hôte : dialout, audio, video, sudo, etc.)
     groupadd -f dialout || true && \
     groupadd -f audio    || true && \
     groupadd -f video    || true && \
@@ -32,7 +30,6 @@ RUN existing_user=$(getent passwd ${USER_ID} | cut -d: -f1) && \
     groupadd -f netdev   || true && \
     groupadd -f sudo     || true && \
     usermod -aG dialout,audio,video,plugdev,input,render,netdev,sudo ${USERNAME} && \
-    # sudo sans mot de passe
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Dépendances système minimales
@@ -78,14 +75,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-xacro \
     && rm -rf /var/lib/apt/lists/*
 
-# IMU
+# IMU tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-imu-tools \
     ros-${ROS_DISTRO}-imu-filter-madgwick \
     && rm -rf /var/lib/apt/lists/*
 
-# rosdep init + update
+# rosdep
 RUN rosdep init 2>/dev/null || true && rosdep update --rosdistro ${ROS_DISTRO}
+
+# control-toolbox (ros-jazzy-control-toolbox existe sur arm64 ; libonnxruntime-dev
+# est x86-only sur les dépôts Ubuntu standards → supprimé)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-control-toolbox \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG ONNX_VERSION=1.17.3
+RUN wget https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-aarch64-${ONNX_VERSION}.tgz \
+    && tar -xzf onnxruntime-linux-aarch64-${ONNX_VERSION}.tgz \
+    && cp -r onnxruntime-linux-aarch64-${ONNX_VERSION}/include/* /usr/local/include/ \
+    && cp -r onnxruntime-linux-aarch64-${ONNX_VERSION}/lib/* /usr/local/lib/ \
+    && rm -rf onnxruntime-linux-aarch64-${ONNX_VERSION}*
 
 # Fichier FastDDS minimal
 RUN mkdir -p /etc/fastdds && \
@@ -109,9 +119,7 @@ RUN bash -c "\
     fi && \
     rm -rf /var/lib/apt/lists/* build log /root/.ros"
 
-# ---------------------------------------------------------------------------
-# Configuration FastDDS (profil XML base robot)
-# ---------------------------------------------------------------------------
+# Configuration FastDDS
 RUN mkdir -p /etc/fastdds
 COPY fastdds_base.xml /etc/fastdds/fastdds_base.xml
 
