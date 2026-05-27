@@ -33,3 +33,4 @@ __pycache__/
 muto_ws/build
 muto_ws/install
 muto_ws/log
+core.*

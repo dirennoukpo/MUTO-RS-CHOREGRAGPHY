@@ -48,6 +48,21 @@
 
       <param name="imu_publish_rate">20.0</param>   <!-- Hz, max ~10 recommandé -->
       <param name="imu_frame_id">imu_link</param>
+
+      <!--
+        TORQUE:
+
+        true (défaut, mode NORMAL):
+          - torqueOn()  appelé à l'activation  → les servos résistent passivement
+          - torqueOff() appelé à la désactivation → les servos se relâchent
+
+        false (mode PASSIF / débogage mécanique):
+          - Les servos restent libres même après activation (aucun couple appliqué)
+          - Utile pour déplacer les pattes à la main sans forcer contre le couple
+          - Les commandes de position sont toujours émises par write()
+          - ATTENTION: le robot peut s'affaisser sous son propre poids
+      -->
+      <param name="torque_enabled">false</param>
     </hardware>
 
     <!-- zq - front right -->
