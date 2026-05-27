@@ -8,16 +8,17 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-#include <mutex>          // BUG FIX #1 : mutex manquant pour protéger imu_data_
-#include <cmath>          // BUG FIX #5 : std::isfinite pour valider les sorties
+#include <mutex>
+#include <cmath>
 #include <iostream>
+#include <fstream>
 
 // ─── Constantes configurables ────────────────────────────────────────────────
 static constexpr size_t  NUM_JOINTS       = 18;
 static constexpr size_t  NUM_IMU_CHANNELS = 6;
 static constexpr size_t  INPUT_SIZE       = NUM_JOINTS + NUM_IMU_CHANNELS; // 24
-static constexpr float   ACTION_SCALE     = 0.25f;   // BUG FIX #5 : scaling [-1,1] → rad réels
-static constexpr double  MAX_JOINT_RAD    = 3.14159; // sécurité clamp sortie
+static constexpr float   ACTION_SCALE     = 0.25f;
+static constexpr double  MAX_JOINT_RAD    = 3.14159;
 
 class MutoPolicyInferenceNode : public rclcpp::Node
 {
@@ -25,22 +26,27 @@ public:
   MutoPolicyInferenceNode()
   : Node("muto_policy_inference_node"),
     env_(ORT_LOGGING_LEVEL_WARNING, "MutoPolicy"),
-    session_{nullptr}      // initialisation explicite
+    session_{nullptr},
+    model_loaded_(false)
   {
     // ── 1. Chemin du modèle ONNX ─────────────────────────────────────────────
     this->declare_parameter<std::string>("policy_path", "muto_walk_policy.onnx");
     std::string policy_param = this->get_parameter("policy_path").as_string();
 
+    RCLCPP_INFO(this->get_logger(), "policy_path reçu : '%s'", policy_param.c_str());
+
     if (policy_param.empty()) {
-      RCLCPP_FATAL(this->get_logger(), "Le paramètre 'policy_path' est vide.");
+      RCLCPP_FATAL(this->get_logger(), "Le paramètre 'policy_path' est vide !");
       return;
     }
 
+    // Résolution du chemin relatif → absolu
     if (policy_param.front() != '/') {
       try {
         std::string pkg_path =
           ament_index_cpp::get_package_share_directory("muto_description");
         policy_param = pkg_path + "/config/" + policy_param;
+        RCLCPP_INFO(this->get_logger(), "Chemin absolu résolu : %s", policy_param.c_str());
       } catch (const std::exception& e) {
         RCLCPP_FATAL(this->get_logger(),
           "Package 'muto_description' introuvable : %s", e.what());
@@ -48,30 +54,49 @@ public:
       }
     }
 
-    RCLCPP_INFO(this->get_logger(),
-      "Chargement de la politique IA : %s", policy_param.c_str());
+    // Vérifier que le fichier existe AVANT de charger ONNX
+    // (évite un crash silencieux sans message utile)
+    {
+      std::ifstream f(policy_param);
+      if (!f.good()) {
+        RCLCPP_FATAL(this->get_logger(),
+          "Fichier ONNX introuvable : '%s'\n"
+          "  → Copiez votre modèle dans :\n"
+          "    install/muto_description/share/muto_description/config/\n"
+          "  → Ou passez un chemin absolu : policy_path:=/chemin/complet/modele.onnx",
+          policy_param.c_str());
+        return;
+      }
+    }
 
-    // ── 2. Options ONNX Runtime (optimisé Pi 5) ───────────────────────────────
+    RCLCPP_INFO(this->get_logger(), "Chargement ONNX : %s", policy_param.c_str());
+
+    // ── 2. Options ONNX Runtime ───────────────────────────────────────────────
     Ort::SessionOptions session_options;
     session_options.SetIntraOpNumThreads(2);
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    // Désactiver la mémoire des activations pour économiser la RAM du Pi 5
     session_options.EnableMemPattern();
     session_options.EnableCpuMemArena();
 
     try {
       session_ = Ort::Session(env_, policy_param.c_str(), session_options);
     }
-    catch (const Ort::Exception& e) {        // BUG FIX #2 : capturer Ort::Exception spécifiquement
+    catch (const Ort::Exception& e) {
       RCLCPP_FATAL(this->get_logger(),
         "Impossible de charger le modèle ONNX : %s", e.what());
       return;
     }
 
-    // BUG FIX #3 : valider les dimensions d'entrée/sortie du modèle au démarrage
+    // ── 3. Lire les vrais noms des tenseurs (FIX CRITIQUE) ────────────────────
+    // Ne pas hardcoder "input"/"output" : ça dépend du modèle exporté.
+    if (!resolve_tensor_names()) {
+      return;  // FATAL déjà loggé dans la fonction
+    }
+
+    // ── 4. Valider les dimensions ─────────────────────────────────────────────
     validate_model_io();
 
-    // ── 3. Ordre des joints (doit correspondre à Isaac Lab) ───────────────────
+    // ── 5. Ordre des joints (doit correspondre à Isaac Lab) ───────────────────
     expected_joint_order_ = {
       "zq1_Joint", "zq2_Joint", "zq3_Joint",
       "zz1_Joint", "zz2_Joint", "zz3_Joint",
@@ -81,14 +106,10 @@ public:
       "yh1_Joint", "yh2_Joint", "yh3_Joint"
     };
 
-    // IMU : [ang_vel x,y,z | lin_acc x,y,z]
     imu_data_.resize(NUM_IMU_CHANNELS, 0.0f);
-
-    // Pré-allouer le buffer d'entrée une seule fois (évite malloc à 50 Hz)
     input_buffer_.resize(INPUT_SIZE, 0.0f);
 
-    // ── 4. Abonnements / publications ────────────────────────────────────────
-    // BUG FIX #4 : std::placeholders::_1 (underscore + 1), pas ::1
+    // ── 6. Abonnements / publications ────────────────────────────────────────
     imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       "/muto/imu", 10,
       std::bind(&MutoPolicyInferenceNode::imu_callback, this, std::placeholders::_1));
@@ -97,45 +118,89 @@ public:
       "/joint_states", 1,
       std::bind(&MutoPolicyInferenceNode::joint_state_callback, this, std::placeholders::_1));
 
-    // BUG FIX #6 : cmd_pub_ (underscore final) cohérent avec la déclaration membre
     cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
       "/leg_controller/commands", 1);
 
+    model_loaded_ = true;
     RCLCPP_INFO(this->get_logger(),
-      "Nœud Muto RS initialisé — entrées : %zu joints + %zu IMU = %zu dims.",
-      NUM_JOINTS, NUM_IMU_CHANNELS, INPUT_SIZE);
+      "✓ Nœud Muto RS prêt — %zu joints + %zu IMU → %zu dims | "
+      "tenseur entrée: '%s' | tenseur sortie: '%s'",
+      NUM_JOINTS, NUM_IMU_CHANNELS, INPUT_SIZE,
+      input_name_.c_str(), output_name_.c_str());
   }
 
 private:
-  // ── Validation du modèle au démarrage ─────────────────────────────────────
-  void validate_model_io()
+  // ── Résolution dynamique des noms de tenseurs ─────────────────────────────
+  // FIX CRITIQUE : "input"/"output" sont des conventions, pas des garanties.
+  // Le vrai nom dépend du framework d'export (Isaac Lab, PyTorch, etc.)
+  bool resolve_tensor_names()
   {
     Ort::AllocatorWithDefaultOptions allocator;
 
     size_t num_inputs  = session_.GetInputCount();
     size_t num_outputs = session_.GetOutputCount();
 
-    RCLCPP_INFO(this->get_logger(),
-      "Modèle ONNX — %zu entrée(s), %zu sortie(s).", num_inputs, num_outputs);
-
-    if (num_inputs < 1 || num_outputs < 1) {
-      RCLCPP_FATAL(this->get_logger(), "Modèle ONNX invalide (0 entrée ou 0 sortie).");
-      return;
+    if (num_inputs < 1) {
+      RCLCPP_FATAL(this->get_logger(), "Le modèle ONNX n'a aucune entrée !");
+      return false;
+    }
+    if (num_outputs < 1) {
+      RCLCPP_FATAL(this->get_logger(), "Le modèle ONNX n'a aucune sortie !");
+      return false;
     }
 
-    // Vérifier la shape d'entrée
-    auto input_info  = session_.GetInputTypeInfo(0);
-    auto input_shape = input_info.GetTensorTypeAndShapeInfo().GetShape();
-    RCLCPP_INFO(this->get_logger(),
-      "Shape entrée modèle : [%s]",
-      shape_to_string(input_shape).c_str());
+    // Lire le vrai nom du premier tenseur d'entrée
+    auto input_name_ptr  = session_.GetInputNameAllocated(0, allocator);
+    auto output_name_ptr = session_.GetOutputNameAllocated(0, allocator);
+    input_name_  = std::string(input_name_ptr.get());
+    output_name_ = std::string(output_name_ptr.get());
 
-    // Vérifier la shape de sortie
-    auto output_info  = session_.GetOutputTypeInfo(0);
-    auto output_shape = output_info.GetTensorTypeAndShapeInfo().GetShape();
+    // Logger tous les noms disponibles (utile pour debug)
     RCLCPP_INFO(this->get_logger(),
-      "Shape sortie modèle : [%s]",
-      shape_to_string(output_shape).c_str());
+      "Modèle ONNX : %zu entrée(s), %zu sortie(s)", num_inputs, num_outputs);
+    for (size_t i = 0; i < num_inputs; ++i) {
+      auto n = session_.GetInputNameAllocated(i, allocator);
+      auto info = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+      RCLCPP_INFO(this->get_logger(),
+        "  Entrée[%zu] : '%s'  shape=[%s]", i, n.get(), shape_to_string(info).c_str());
+    }
+    for (size_t i = 0; i < num_outputs; ++i) {
+      auto n = session_.GetOutputNameAllocated(i, allocator);
+      auto info = session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+      RCLCPP_INFO(this->get_logger(),
+        "  Sortie[%zu] : '%s'  shape=[%s]", i, n.get(), shape_to_string(info).c_str());
+    }
+
+    return true;
+  }
+
+  // ── Validation des dimensions d'entrée/sortie ────────────────────────────
+  void validate_model_io()
+  {
+    auto input_shape = session_.GetInputTypeInfo(0)
+                               .GetTensorTypeAndShapeInfo().GetShape();
+    auto output_shape = session_.GetOutputTypeInfo(0)
+                                .GetTensorTypeAndShapeInfo().GetShape();
+
+    // L'entrée doit avoir une dim finale == INPUT_SIZE (ou -1 = dynamique)
+    int64_t expected_in = static_cast<int64_t>(INPUT_SIZE);
+    if (!input_shape.empty() && input_shape.back() != -1 &&
+        input_shape.back() != expected_in) {
+      RCLCPP_WARN(this->get_logger(),
+        "ATTENTION : le modèle attend %ld valeurs en entrée, "
+        "mais INPUT_SIZE = %zu. Ajustez la constante dans le code !",
+        input_shape.back(), INPUT_SIZE);
+    }
+
+    // La sortie doit avoir une dim finale == NUM_JOINTS (ou -1 = dynamique)
+    int64_t expected_out = static_cast<int64_t>(NUM_JOINTS);
+    if (!output_shape.empty() && output_shape.back() != -1 &&
+        output_shape.back() != expected_out) {
+      RCLCPP_WARN(this->get_logger(),
+        "ATTENTION : le modèle produit %ld valeurs en sortie, "
+        "mais NUM_JOINTS = %zu. Vérifiez la correspondance !",
+        output_shape.back(), NUM_JOINTS);
+    }
   }
 
   static std::string shape_to_string(const std::vector<int64_t>& shape)
@@ -148,10 +213,9 @@ private:
     return s;
   }
 
-  // ── Callback IMU (20 Hz) ──────────────────────────────────────────────────
+  // ── Callback IMU ─────────────────────────────────────────────────────────
   void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
   {
-    // BUG FIX #1 : protéger imu_data_ contre la concurrence joint_state_callback
     std::lock_guard<std::mutex> lock(imu_mutex_);
     imu_data_[0] = static_cast<float>(msg->angular_velocity.x);
     imu_data_[1] = static_cast<float>(msg->angular_velocity.y);
@@ -161,31 +225,32 @@ private:
     imu_data_[5] = static_cast<float>(msg->linear_acceleration.z);
   }
 
-  // ── Callback JointState (50 Hz) — déclencheur de l'inférence ─────────────
+  // ── Callback JointState — déclencheur de l'inférence ─────────────────────
   void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
   {
-    // Vérification taille minimale
+    if (!model_loaded_) return;
+
     if (msg->name.size() < NUM_JOINTS || msg->position.size() < NUM_JOINTS) {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-        "Message JointState incomplet (%zu joints reçus, %zu attendus).",
+        "JointState incomplet : %zu joints reçus, %zu attendus.",
         msg->name.size(), NUM_JOINTS);
       return;
     }
 
-    // ── Remplir les 18 premières cases du buffer (positions joints) ──────────
+    // Remplir les positions joints dans l'ordre attendu
     for (size_t i = 0; i < NUM_JOINTS; ++i) {
       const auto& joint_name = expected_joint_order_[i];
       auto it = std::find(msg->name.begin(), msg->name.end(), joint_name);
       if (it == msg->name.end()) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-          "Joint manquant dans le message : '%s'", joint_name.c_str());
+          "Joint manquant : '%s'", joint_name.c_str());
         return;
       }
       size_t idx = std::distance(msg->name.begin(), it);
       input_buffer_[i] = static_cast<float>(msg->position[idx]);
     }
 
-    // ── Remplir les 6 dernières cases (données IMU) ──────────────────────────
+    // Ajouter les données IMU
     {
       std::lock_guard<std::mutex> lock(imu_mutex_);
       std::copy(imu_data_.begin(), imu_data_.end(),
@@ -203,8 +268,9 @@ private:
       input_buffer_.data(), input_buffer_.size(),
       input_shape.data(), input_shape.size());
 
-    const char* input_names[]  = {"input"};
-    const char* output_names[] = {"output"};
+    // Utiliser les vrais noms de tenseurs lus depuis le modèle
+    const char* input_names[]  = {input_name_.c_str()};
+    const char* output_names[] = {output_name_.c_str()};
 
     std::vector<Ort::Value> output_tensors;
     try {
@@ -214,19 +280,18 @@ private:
         output_names, 1);
     }
     catch (const Ort::Exception& e) {
-      RCLCPP_ERROR(this->get_logger(), "Erreur d'inférence ONNX : %s", e.what());
+      RCLCPP_ERROR(this->get_logger(), "Erreur inférence ONNX : %s", e.what());
       return;
     }
 
     const float* output_values =
       output_tensors.front().GetTensorMutableData<float>();
 
-    // ── Publication vers ros2_control ────────────────────────────────────────
+    // ── Publication ─────────────────────────────────────────────────────────
     auto cmd_msg = std_msgs::msg::Float64MultiArray();
     cmd_msg.data.resize(NUM_JOINTS);
 
     for (size_t i = 0; i < NUM_JOINTS; ++i) {
-      // BUG FIX #5 : scaling + clamp de sécurité (NaN/Inf → arrêt propre)
       float raw = output_values[i] * ACTION_SCALE;
       if (!std::isfinite(raw)) {
         RCLCPP_ERROR(this->get_logger(),
@@ -234,31 +299,38 @@ private:
         return;
       }
       cmd_msg.data[i] = static_cast<double>(
-        std::clamp(raw, static_cast<float>(-MAX_JOINT_RAD),
-                        static_cast<float>( MAX_JOINT_RAD)));
+        std::clamp(raw,
+          static_cast<float>(-MAX_JOINT_RAD),
+          static_cast<float>( MAX_JOINT_RAD)));
     }
 
-    cmd_pub_->publish(cmd_msg);  // BUG FIX #6 : cmd_pub_ (cohérent avec le membre)
+    cmd_pub_->publish(cmd_msg);
   }
 
   // ── Membres ───────────────────────────────────────────────────────────────
   Ort::Env     env_;
   Ort::Session session_;
+  bool         model_loaded_;
+
+  // Noms réels des tenseurs (lus depuis le modèle, pas hardcodés)
+  std::string  input_name_;
+  std::string  output_name_;
 
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr         imu_sub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr  cmd_pub_;
 
   std::vector<std::string> expected_joint_order_;
-  std::vector<float>       imu_data_;       // protégé par imu_mutex_
-  std::vector<float>       input_buffer_;   // pré-alloué, réutilisé à chaque cycle
-  std::mutex               imu_mutex_;      // BUG FIX #1
+  std::vector<float>       imu_data_;
+  std::vector<float>       input_buffer_;
+  std::mutex               imu_mutex_;
 };
 
 int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<MutoPolicyInferenceNode>());
+  auto node = std::make_shared<MutoPolicyInferenceNode>();
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }
