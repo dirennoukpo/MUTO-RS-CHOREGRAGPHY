@@ -45,6 +45,9 @@
           - Ne pas utiliser en production
       -->
       <param name="update_state_from_hardware">false</param>
+
+      <param name="imu_publish_rate">20.0</param>   <!-- Hz, max ~10 recommandé -->
+      <param name="imu_frame_id">imu_link</param>
     </hardware>
 
     <!-- zq - front right -->

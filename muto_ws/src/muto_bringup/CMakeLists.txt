@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 # -- muto_link (low-level communication library) --
 add_library(muto_link SHARED
@@ -46,6 +47,7 @@ ament_target_dependencies(muto_hardware
   rclcpp_lifecycle
   hardware_interface
   pluginlib
+  sensor_msgs
 )
 
 target_compile_features(muto_hardware PUBLIC cxx_std_17)

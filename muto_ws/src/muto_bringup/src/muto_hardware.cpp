@@ -1,11 +1,49 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// muto_hardware.cpp — ros2_control SystemInterface pour hexapode MUTO
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// ARCHITECTURE IMU (ajout v2):
+//
+//   Le port série est partagé entre les servos et l'IMU.
+//   Contrainte: une seule opération série à la fois (half-duplex).
+//
+//   Solution: thread IMU dédié + mutex série.
+//
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  Cycle RT 50Hz (thread controller_manager)                  │
+//   │    write() → batch servo 18 trames → driver_->writeRaw()    │
+//   │    read()  → state = command (0ms)                          │
+//   │    Les deux acquièrent serial_mutex_ avant tout accès série  │
+//   ├─────────────────────────────────────────────────────────────┤
+//   │  Thread IMU (~10Hz, indépendant du cycle RT)                 │
+//   │    Attend serial_mutex_ (non-bloquant si cycle RT actif)     │
+//   │    sensor_->getImuAngleDegrees()   ~26ms                    │
+//   │    sensor_->getImuPhysical()       ~26ms                    │
+//   │    Copie dans imu_cache_ (protégé par imu_mutex_)           │
+//   │    Relâche serial_mutex_                                     │
+//   ├─────────────────────────────────────────────────────────────┤
+//   │  Node interne ROS2 (même processus)                         │
+//   │    Timer 10Hz → lit imu_cache_ → publie                     │
+//   │    Topics: /muto/imu, /muto/imu/raw, /muto/imu/mag         │
+//   └─────────────────────────────────────────────────────────────┘
+//
+// Paramètres xacro nouveaux:
+//   imu_publish_rate  (défaut: 10.0) Hz de publication IMU
+//   imu_frame_id      (défaut: "imu_link") frame TF de l'IMU
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
@@ -15,66 +53,45 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 
-#include "muto_link/driver.hpp"
+// Messages IMU
+#include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/magnetic_field.hpp"
+#include "sensor_msgs/msg/temperature.hpp"
+
+#include "muto_link/sensor.hpp"   // Sensor hérite de Driver: toutes les méthodes servo disponibles
 #include "muto_link/errors.hpp"
 #include "muto_link/transport.hpp"
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ANALYSE DE L'OVERRUN — CAUSES RACINES ET CORRECTIONS
-// ═══════════════════════════════════════════════════════════════════════════════
-//
-// Mesures logs (50Hz = budget 20ms par cycle):
-//   Read  : ~26ms  (turnaround firmware MUTO ~23ms, incompressible)
-//   Write : ~16ms  (18 × servoMove() = 18 × tcdrain() sur USB-serial)
-//   Total : ~42ms  → overrun systématique de 3 cycles
-//
-// CAUSE #1 — Write: tcdrain() répété 18 fois
-//   Chaque servoMove() appelle transport_->write() puis tcdrain().
-//   Sur adaptateur USB-serial (CH340 / FTDI / CP210x), tcdrain() est
-//   retenu par le latency timer USB (1-4ms). Résultat: 18 × ~1ms = ~18ms
-//   alors que la TX série réelle de 18 trames de 12 bytes = 1.88ms.
-//
-//   FIX: accumuler les 18 trames en mémoire → 1 seul writeRaw() → 1 tcdrain().
-//   Résultat: write passe de ~16ms à ~2ms. (14ms gagnés)
-//
-// CAUSE #2 — Read: turnaround firmware ~23ms (hardware fixe, non négociable)
-//   La carte MUTO met ~23ms entre la réception de la requête et l'envoi
-//   de la réponse. Réduire le timeout ROS2 ou le baud rate ne change rien.
-//
-//   FIX: supprimer la lecture série du cycle RT.
-//   Pour un hexapode à servos hobby (STS, SCS, etc.), les servos n'ont pas
-//   d'encodeur absolu indépendant — le feedback série retourne la position
-//   cible interne du servo, pas sa position mécanique réelle. Le contrôleur
-//   ROS2 (JointGroupPositionController) n'utilise pas ce feedback pour la
-//   commande. state = command est une approximation correcte.
-//   Résultat: read passe de ~26ms à ~0ms. (26ms gagnés)
-//
-// RÉSULTAT: cycle RT ~2ms → 50Hz largement atteignable (budget 20ms).
-//
-// PARAMÈTRE update_state_from_hardware (xacro, défaut: false):
-//   false → state = command (production, 50Hz)
-//   true  → lecture série dans le RT (debug uniquement, impose ≤ 20Hz)
-//
-// ═══════════════════════════════════════════════════════════════════════════════
 
 namespace muto_hardware {
 namespace {
 
-constexpr double   kPi               = 3.14159265358979323846;
-constexpr double   kRadToDeg         = 180.0 / kPi;
-constexpr double   kDegToRad         = kPi / 180.0;
+constexpr double   kPi                = 3.14159265358979323846;
+constexpr double   kRadToDeg          = 180.0 / kPi;
+constexpr double   kDegToRad          = kPi / 180.0;
 constexpr uint16_t kDefaultServoSpeed = 300;
-
-// Taille fixe d'une trame servoMove: header(2)+LEN(1)+INSTR(1)+ADDR(1)+data(4)+CHK(1)+tail(2) = 12
 constexpr std::size_t kServoFrameSize = 12;
+constexpr uint8_t  kRegServoPosition  = 0x40;
 
-// Registres protocole MUTO (dupliqués ici pour éviter de dépendre de l'accès à driver_ privé)
-constexpr uint8_t kRegServoPosition = 0x40;
+// ─── Quaternion RPY sans dépendance tf2 ──────────────────────────────────────
+struct Quat { double x, y, z, w; };
+Quat rpy_to_quat(double roll_deg, double pitch_deg, double yaw_deg) {
+  const double r = roll_deg  * kDegToRad;
+  const double p = pitch_deg * kDegToRad;
+  const double y = yaw_deg   * kDegToRad;
+  const double cr = std::cos(r * 0.5), sr = std::sin(r * 0.5);
+  const double cp = std::cos(p * 0.5), sp = std::sin(p * 0.5);
+  const double cy = std::cos(y * 0.5), sy = std::sin(y * 0.5);
+  return {
+    sr*cp*cy - cr*sp*sy,
+    cr*sp*cy + sr*cp*sy,
+    cr*cp*sy - sr*sp*cy,
+    cr*cp*cy + sr*sp*sy
+  };
+}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// ─── Helpers parsing ──────────────────────────────────────────────────────────
 bool parse_bool(const std::string & value, bool default_value) {
-  if (value.empty()) { return default_value; }
+  if (value.empty()) return default_value;
   std::string s = value;
   std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
   if (s == "true"  || s == "1" || s == "yes" || s == "on")  return true;
@@ -89,7 +106,6 @@ double protocol_to_degrees(uint8_t angle_byte) {
   return (p < 0) ? (p / 128.0) * 90.0 : (p / 127.0) * 90.0;
 }
 
-// Conversion symétrique de driver.cpp (servoMove)
 uint8_t degrees_to_protocol_byte(int16_t clamped) {
   if (clamped < -90) clamped = -90;
   if (clamped >  90) clamped =  90;
@@ -118,6 +134,20 @@ bool parse_double_token(const std::string & t, double & out) {
 
 using CallbackReturn = hardware_interface::CallbackReturn;
 
+// ─── Cache IMU (données protégées par imu_mutex_) ─────────────────────────────
+struct ImuCache {
+  // Angles fusionnés
+  float roll_deg   = 0.0f;
+  float pitch_deg  = 0.0f;
+  float yaw_deg    = 0.0f;
+  uint8_t temp_c   = 0;
+  // Données physiques 9 axes
+  float accel_x_ms2 = 0.0f, accel_y_ms2 = 0.0f, accel_z_ms2 = 0.0f;
+  float gyro_x_dps  = 0.0f, gyro_y_dps  = 0.0f, gyro_z_dps  = 0.0f;
+  float mag_x_raw   = 0.0f, mag_y_raw   = 0.0f, mag_z_raw   = 0.0f;
+  bool valid = false;
+};
+
 // ─── Classe principale ────────────────────────────────────────────────────────
 
 class MutoHexapodHardware : public hardware_interface::SystemInterface {
@@ -135,17 +165,29 @@ public:
   hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override;
 
 private:
+  // ── Méthodes internes ─────────────────────────────────────────────────────
   bool validate_joint_interfaces(const hardware_interface::HardwareInfo &) const;
   bool parse_servo_ids   (const std::string &, std::vector<uint8_t> &) const;
   bool parse_bool_list   (const std::string &, std::vector<bool>    &) const;
   bool parse_double_list (const std::string &, std::vector<double>  &) const;
 
   void release_driver() noexcept;
-  bool read_state_from_hardware();   // Hors cycle RT uniquement
+  bool read_state_from_hardware();
 
+  // ── Thread IMU ────────────────────────────────────────────────────────────
+  void imu_thread_fn();
+  void start_imu_thread();
+  void stop_imu_thread() noexcept;
+  void publish_imu();
+
+  // ── Logger ───────────────────────────────────────────────────────────────
   rclcpp::Logger logger_{rclcpp::get_logger("muto_hardware.MutoHexapodHardware")};
-  std::unique_ptr<muto_link::Driver> driver_;
 
+  // ── Driver (Sensor hérite de Driver: servos + IMU sur le même port) ──────
+  // Sensor hérite de Driver → writeRaw(), torqueOn(), torqueOff() sont disponibles.
+  std::unique_ptr<muto_link::Sensor> sensor_;
+
+  // ── Paramètres ───────────────────────────────────────────────────────────
   std::string  port_{"/dev/ttyUSB0"};
   int          baud_{115200};
   double       read_timeout_sec_{0.050};
@@ -153,12 +195,32 @@ private:
   bool         validate_checksum_{true};
   uint16_t     servo_speed_{kDefaultServoSpeed};
   bool         update_state_from_hardware_{false};
+  double       imu_publish_rate_{10.0};
+  std::string  imu_frame_id_{"imu_link"};
 
+  // ── Joints ───────────────────────────────────────────────────────────────
   std::vector<uint8_t> servo_ids_;
   std::vector<bool>    servo_inversions_;
   std::vector<double>  servo_offsets_deg_;
   std::vector<double>  command_positions_;
   std::vector<double>  state_positions_;
+
+  // ── Mutex série: partagé entre cycle RT et thread IMU ────────────────────
+  // Le cycle RT (write) et le thread IMU (read IMU) ne peuvent pas accéder
+  // au port série simultanément. serial_mutex_ protège tous les accès.
+  std::mutex serial_mutex_;
+
+  // ── Thread IMU ────────────────────────────────────────────────────────────
+  std::thread         imu_thread_;
+  std::atomic<bool>   imu_running_{false};
+  std::mutex          imu_cache_mutex_;
+  ImuCache            imu_cache_;
+
+  // ── Node interne ROS2 pour publication IMU ────────────────────────────────
+  rclcpp::Node::SharedPtr imu_node_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr          pub_imu_;
+  rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr pub_mag_;
+  rclcpp::Publisher<sensor_msgs::msg::Temperature>::SharedPtr   pub_temp_;
 };
 
 // ─── on_init ──────────────────────────────────────────────────────────────────
@@ -183,36 +245,37 @@ CallbackReturn MutoHexapodHardware::on_init(
   };
   static const std::string empty;
 
-  // port
   const auto & pv = get("port", empty); if (!pv.empty()) port_ = pv;
 
-  // baud
   const auto & bv = get("baud", empty);
   if (!bv.empty()) { try { baud_ = std::stoi(bv); } catch(...) {} }
   if (baud_ <= 0) baud_ = 115200;
 
-  // read_timeout_sec
   const auto & tv = get("read_timeout_sec", empty);
   if (!tv.empty()) { try { read_timeout_sec_ = std::stod(tv); } catch(...) {} }
   if (read_timeout_sec_ <= 0.0) read_timeout_sec_ = 0.050;
 
-  // retry_count
   const auto & rv = get("retry_count", empty);
   if (!rv.empty()) { try { retry_count_ = std::stoi(rv); } catch(...) {} }
   if (retry_count_ < 1) retry_count_ = 1;
 
-  // validate_checksum
   {auto it = pm.find("validate_checksum"); if(it!=pm.end()) validate_checksum_ = parse_bool(it->second, true);}
 
-  // servo_speed
   const auto & sv = get("servo_speed", empty);
   if (!sv.empty()) {
     try { servo_speed_ = static_cast<uint16_t>(std::min(std::stoul(sv), (unsigned long)65535)); }
     catch(...) {}
   }
 
-  // update_state_from_hardware (false par défaut = mode production sans lecture RT)
   {auto it = pm.find("update_state_from_hardware"); if(it!=pm.end()) update_state_from_hardware_ = parse_bool(it->second, false);}
+
+  // Paramètres IMU
+  const auto & ir = get("imu_publish_rate", empty);
+  if (!ir.empty()) { try { imu_publish_rate_ = std::stod(ir); } catch(...) {} }
+  if (imu_publish_rate_ <= 0.0 || imu_publish_rate_ > 50.0) imu_publish_rate_ = 10.0;
+
+  const auto & iframe = get("imu_frame_id", empty);
+  if (!iframe.empty()) imu_frame_id_ = iframe;
 
   // servo_ids
   servo_ids_.clear();
@@ -228,9 +291,8 @@ CallbackReturn MutoHexapodHardware::on_init(
   }
   {
     auto sorted = servo_ids_; std::sort(sorted.begin(), sorted.end());
-    auto dup = std::adjacent_find(sorted.begin(), sorted.end());
-    if (dup != sorted.end()) {
-      RCLCPP_ERROR(logger_, "Duplicate servo_id %u", *dup); return CallbackReturn::ERROR;
+    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
+      RCLCPP_ERROR(logger_, "Duplicate servo_id"); return CallbackReturn::ERROR;
     }
   }
 
@@ -242,8 +304,8 @@ CallbackReturn MutoHexapodHardware::on_init(
     if (it != pm.end() && !it->second.empty()) {
       std::vector<bool> parsed;
       if (parse_bool_list(it->second, parsed)) {
-        if      (parsed.size() == 1)                servo_inversions_.assign(info_.joints.size(), parsed[0]);
-        else if (parsed.size() == info_.joints.size()) servo_inversions_ = parsed;
+        if      (parsed.size() == 1)                   servo_inversions_.assign(info_.joints.size(), parsed[0]);
+        else if (parsed.size() == info_.joints.size())  servo_inversions_ = parsed;
         inv_set = true;
       }
     }
@@ -268,8 +330,8 @@ CallbackReturn MutoHexapodHardware::on_init(
     if (it != pm.end() && !it->second.empty()) {
       std::vector<double> parsed;
       if (parse_double_list(it->second, parsed)) {
-        if      (parsed.size() == 1)                  servo_offsets_deg_.assign(info_.joints.size(), parsed[0]);
-        else if (parsed.size() == info_.joints.size()) servo_offsets_deg_ = parsed;
+        if      (parsed.size() == 1)                   servo_offsets_deg_.assign(info_.joints.size(), parsed[0]);
+        else if (parsed.size() == info_.joints.size())  servo_offsets_deg_ = parsed;
       }
     }
   }
@@ -278,9 +340,10 @@ CallbackReturn MutoHexapodHardware::on_init(
   state_positions_.assign(info_.joints.size(), 0.0);
 
   RCLCPP_INFO(logger_,
-    "Initialized: port=%s baud=%d timeout=%.3fs retries=%d speed=%u joints=%zu RT_state=%s",
+    "Initialized: port=%s baud=%d timeout=%.3fs retries=%d speed=%u joints=%zu RT_state=%s imu=%.0fHz frame=%s",
     port_.c_str(), baud_, read_timeout_sec_, retry_count_, servo_speed_, info_.joints.size(),
-    update_state_from_hardware_ ? "hardware (≤20Hz!)" : "command (50Hz OK)");
+    update_state_from_hardware_ ? "hardware (≤20Hz!)" : "command (50Hz OK)",
+    imu_publish_rate_, imu_frame_id_.c_str());
 
   return CallbackReturn::SUCCESS;
 }
@@ -306,19 +369,20 @@ std::vector<hardware_interface::CommandInterface> MutoHexapodHardware::export_co
 // ─── release_driver ──────────────────────────────────────────────────────────
 
 void MutoHexapodHardware::release_driver() noexcept {
-  if (!driver_) return;
-  try { driver_->torqueOff(); } catch (const std::exception & e) {
-    RCLCPP_WARN(logger_, "torqueOff during release: %s", e.what()); }
-  try { driver_->close(); } catch (const std::exception & e) {
-    RCLCPP_WARN(logger_, "close during release: %s", e.what()); }
-  driver_.reset();
+  if (!sensor_) return;
+  try { sensor_->torqueOff(); } catch (const std::exception & e) {
+    RCLCPP_WARN(logger_, "torqueOff: %s", e.what()); }
+  try { sensor_->close(); } catch (const std::exception & e) {
+    RCLCPP_WARN(logger_, "close: %s", e.what()); }
+  sensor_.reset();
 }
 
 // ─── read_state_from_hardware ─────────────────────────────────────────────────
 
 bool MutoHexapodHardware::read_state_from_hardware() {
+  // Appelé hors cycle RT uniquement (on_activate) → pas de serial_mutex_ ici
   try {
-    const auto raw = driver_->readServoAngle(1);
+    const auto raw = sensor_->readServoAngle(1);
     const uint8_t max_id = *std::max_element(servo_ids_.begin(), servo_ids_.end());
     if (raw.size() < static_cast<std::size_t>(max_id)) {
       RCLCPP_WARN(logger_, "Response too short (%zu < %u)", raw.size(), max_id);
@@ -336,6 +400,167 @@ bool MutoHexapodHardware::read_state_from_hardware() {
   }
 }
 
+// ─── Thread IMU ───────────────────────────────────────────────────────────────
+//
+// Tourne à imu_publish_rate_ Hz (défaut 10Hz = période 100ms).
+// Attend serial_mutex_ avant chaque lecture pour ne pas entrer en collision
+// avec write() du cycle RT. Si le cycle RT est en cours, il attend
+// qu'il libère le mutex (max 2ms), puis lit l'IMU (~52ms pour les deux
+// lectures), puis libère le mutex.
+//
+// Impact sur le cycle RT: quasi nul car le thread IMU ne tient le mutex
+// que pendant les ~52ms de lecture IMU, qui tombent dans les ~18ms libres
+// entre deux cycles servo (50Hz = 20ms, servo write = 2ms → 18ms libres).
+// En pratique le thread IMU s'intercale dans les intervalles libres.
+//
+void MutoHexapodHardware::imu_thread_fn() {
+  const auto period_ns = std::chrono::nanoseconds(
+    static_cast<long>(1e9 / imu_publish_rate_));
+
+  RCLCPP_INFO(logger_, "IMU thread started (%.0f Hz)", imu_publish_rate_);
+
+  while (imu_running_.load(std::memory_order_relaxed)) {
+    const auto t_start = std::chrono::steady_clock::now();
+
+    if (sensor_) {
+      try {
+        // Acquérir le mutex série pour éviter la collision avec write()
+        std::lock_guard<std::mutex> lock(serial_mutex_);
+
+        const auto angles = sensor_->getImuAngleDegrees();   // ~26ms
+        const auto phys   = sensor_->getImuPhysical();        // ~26ms
+
+        // Mettre à jour le cache sous imu_cache_mutex_
+        {
+          std::lock_guard<std::mutex> cache_lock(imu_cache_mutex_);
+          imu_cache_.roll_deg    = angles.roll;
+          imu_cache_.pitch_deg   = angles.pitch;
+          imu_cache_.yaw_deg     = angles.yaw;
+          imu_cache_.temp_c      = angles.temperature_c;
+          imu_cache_.accel_x_ms2 = phys.accel_x_ms2;
+          imu_cache_.accel_y_ms2 = phys.accel_y_ms2;
+          imu_cache_.accel_z_ms2 = phys.accel_z_ms2;
+          imu_cache_.gyro_x_dps  = phys.gyro_x_dps;
+          imu_cache_.gyro_y_dps  = phys.gyro_y_dps;
+          imu_cache_.gyro_z_dps  = phys.gyro_z_dps;
+          imu_cache_.mag_x_raw   = phys.mag_x_raw;
+          imu_cache_.mag_y_raw   = phys.mag_y_raw;
+          imu_cache_.mag_z_raw   = phys.mag_z_raw;
+          imu_cache_.valid       = true;
+        }
+
+        // Publier depuis le thread IMU (les publishers sont thread-safe dans rclcpp)
+        publish_imu();
+
+      } catch (const std::exception & e) {
+        RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 5000,
+          "IMU read error: %s", e.what());
+      }
+    }
+
+    // Dormir jusqu'au prochain cycle IMU (en tenant compte du temps écoulé)
+    const auto elapsed = std::chrono::steady_clock::now() - t_start;
+    if (elapsed < period_ns) {
+      std::this_thread::sleep_for(period_ns - elapsed);
+    }
+  }
+
+  RCLCPP_INFO(logger_, "IMU thread stopped");
+}
+
+void MutoHexapodHardware::publish_imu() {
+  if (!imu_node_) return;
+
+  ImuCache cache;
+  {
+    std::lock_guard<std::mutex> lock(imu_cache_mutex_);
+    if (!imu_cache_.valid) return;
+    cache = imu_cache_;
+  }
+
+  const auto stamp = imu_node_->now();
+
+  // ── sensor_msgs/Imu ───────────────────────────────────────────────────────
+  {
+    sensor_msgs::msg::Imu msg;
+    msg.header.stamp    = stamp;
+    msg.header.frame_id = imu_frame_id_;
+
+    const auto q = rpy_to_quat(cache.roll_deg, cache.pitch_deg, cache.yaw_deg);
+    msg.orientation.x = q.x;
+    msg.orientation.y = q.y;
+    msg.orientation.z = q.z;
+    msg.orientation.w = q.w;
+    // Covariance orientation (~0.1° std → 0.1 * π/180 ≈ 1.7e-3 rad std → var ≈ 3e-6)
+    msg.orientation_covariance = {3e-6, 0, 0,  0, 3e-6, 0,  0, 0, 3e-6};
+
+    // Accélération (m/s²) — scale facteur kAngleScale non applicable ici, déjà en m/s²
+    msg.linear_acceleration.x = static_cast<double>(cache.accel_x_ms2);
+    msg.linear_acceleration.y = static_cast<double>(cache.accel_y_ms2);
+    msg.linear_acceleration.z = static_cast<double>(cache.accel_z_ms2);
+    msg.linear_acceleration_covariance = {1e-2, 0, 0,  0, 1e-2, 0,  0, 0, 1e-2};
+
+    // Gyroscope: conversion °/s → rad/s
+    msg.angular_velocity.x = static_cast<double>(cache.gyro_x_dps) * kDegToRad;
+    msg.angular_velocity.y = static_cast<double>(cache.gyro_y_dps) * kDegToRad;
+    msg.angular_velocity.z = static_cast<double>(cache.gyro_z_dps) * kDegToRad;
+    msg.angular_velocity_covariance = {1e-4, 0, 0,  0, 1e-4, 0,  0, 0, 1e-4};
+
+    pub_imu_->publish(msg);
+  }
+
+  // ── sensor_msgs/MagneticField ─────────────────────────────────────────────
+  {
+    sensor_msgs::msg::MagneticField msg;
+    msg.header.stamp    = stamp;
+    msg.header.frame_id = imu_frame_id_;
+    // Valeurs brutes (unité capteur) — pas de facteur de conversion connu
+    msg.magnetic_field.x = static_cast<double>(cache.mag_x_raw);
+    msg.magnetic_field.y = static_cast<double>(cache.mag_y_raw);
+    msg.magnetic_field.z = static_cast<double>(cache.mag_z_raw);
+    msg.magnetic_field_covariance = {-1, 0, 0,  0, -1, 0,  0, 0, -1}; // -1 = inconnu
+    pub_mag_->publish(msg);
+  }
+
+  // ── sensor_msgs/Temperature ───────────────────────────────────────────────
+  {
+    sensor_msgs::msg::Temperature msg;
+    msg.header.stamp    = stamp;
+    msg.header.frame_id = imu_frame_id_;
+    msg.temperature     = static_cast<double>(cache.temp_c);
+    msg.variance        = 0.0;  // inconnu
+    pub_temp_->publish(msg);
+  }
+}
+
+void MutoHexapodHardware::start_imu_thread() {
+  // Créer le node interne ROS2 pour la publication
+  rclcpp::NodeOptions opts;
+  opts.automatically_declare_parameters_from_overrides(true);
+  imu_node_ = rclcpp::Node::make_shared("muto_imu_publisher", opts);
+
+  const auto qos = rclcpp::SensorDataQoS();
+  pub_imu_  = imu_node_->create_publisher<sensor_msgs::msg::Imu>        ("muto/imu",     qos);
+  pub_mag_  = imu_node_->create_publisher<sensor_msgs::msg::MagneticField>("muto/imu/mag", qos);
+  pub_temp_ = imu_node_->create_publisher<sensor_msgs::msg::Temperature>  ("muto/imu/temp", 10);
+
+  RCLCPP_INFO(logger_, "IMU publishers created: /muto/imu, /muto/imu/mag, /muto/imu/temp");
+
+  imu_running_.store(true);
+  imu_thread_ = std::thread(&MutoHexapodHardware::imu_thread_fn, this);
+}
+
+void MutoHexapodHardware::stop_imu_thread() noexcept {
+  imu_running_.store(false);
+  if (imu_thread_.joinable()) {
+    imu_thread_.join();
+  }
+  pub_imu_.reset();
+  pub_mag_.reset();
+  pub_temp_.reset();
+  imu_node_.reset();
+}
+
 // ─── on_activate ─────────────────────────────────────────────────────────────
 
 CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &) {
@@ -345,11 +570,13 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &)
     opts.read_timeout_sec  = read_timeout_sec_;
     opts.retry_count       = retry_count_;
     opts.validate_checksum = validate_checksum_;
-    driver_ = std::make_unique<muto_link::Driver>(std::move(transport), opts);
-    driver_->open();
-    driver_->torqueOn();
 
-    // Lecture initiale HORS cycle RT: pas de contrainte temporelle
+    // Sensor hérite de Driver → toutes les méthodes servo + méthodes IMU
+    sensor_ = std::make_unique<muto_link::Sensor>(std::move(transport), opts);
+    sensor_->open();
+    sensor_->torqueOn();
+
+    // Lecture initiale HORS cycle RT
     if (!read_state_from_hardware())
       std::fill(state_positions_.begin(), state_positions_.end(), 0.0);
     command_positions_ = state_positions_;
@@ -359,58 +586,69 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &)
     release_driver();
     return CallbackReturn::ERROR;
   }
-  RCLCPP_INFO(logger_, "Hardware activated on %s", port_.c_str());
+
+  // Démarrer le thread IMU après l'activation du driver
+  start_imu_thread();
+
+  RCLCPP_INFO(logger_, "Hardware activated on %s (IMU @ %.0f Hz)", port_.c_str(), imu_publish_rate_);
   return CallbackReturn::SUCCESS;
 }
 
 // ─── on_deactivate ────────────────────────────────────────────────────────────
 
 CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State &) noexcept {
+  // Arrêter le thread IMU EN PREMIER pour libérer le serial_mutex_
+  stop_imu_thread();
   release_driver();
   RCLCPP_INFO(logger_, "Hardware deactivated");
   return CallbackReturn::SUCCESS;
 }
 
 // ─── read (cycle RT) ──────────────────────────────────────────────────────────
-//
-// Par défaut (update_state_from_hardware=false): state = command → 0ms.
-// Mode debug (=true): lecture série bloquante ~26ms → update_rate ≤ 20Hz obligatoire.
-//
+
 hardware_interface::return_type MutoHexapodHardware::read(
   const rclcpp::Time &, const rclcpp::Duration &)
 {
-  if (!driver_) {
-    RCLCPP_ERROR(logger_, "read: driver not initialized");
+  if (!sensor_) {
+    RCLCPP_ERROR(logger_, "read: sensor not initialized");
     return hardware_interface::return_type::ERROR;
   }
 
   if (!update_state_from_hardware_) {
-    // Mode production: state suit command sans latence série
     state_positions_ = command_positions_;
     return hardware_interface::return_type::OK;
   }
 
-  // Mode debug: lecture série (ne pas utiliser à >20Hz)
-  read_state_from_hardware();   // échec non-fatal: on garde les dernières valeurs
+  // Mode debug: lecture série des servos (bloquant ~26ms, ≤20Hz obligatoire)
+  {
+    std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
+    if (lock.owns_lock()) {
+      read_state_from_hardware();
+    }
+    // Si le thread IMU tient le mutex, on garde les dernières valeurs connues
+  }
   return hardware_interface::return_type::OK;
 }
 
 // ─── write (cycle RT) ─────────────────────────────────────────────────────────
 //
-// FIX: toutes les trames servoMove sont construites dans un buffer unique,
-// puis envoyées en 1 seul writeRaw() → 1 seul tcdrain() côté OS/USB.
+// Utilise try_lock (non-bloquant) sur serial_mutex_.
 //
-// Avant: 18 × tcdrain() ≈ 16ms   Après: 1 × tcdrain() ≈ 2ms
+// Si le thread IMU tient le mutex (lecture ~52ms en cours), write() saute
+// l'envoi ce cycle plutôt que de bloquer et provoquer un overrun.
+// Les servos hobby tolèrent sans problème 1 cycle manqué à 50Hz (20ms).
+//
+// Si le mutex est libre (cas normal), il est acquis immédiatement et le
+// batch est envoyé en ~2ms, bien dans le budget de 20ms.
 //
 hardware_interface::return_type MutoHexapodHardware::write(
   const rclcpp::Time &, const rclcpp::Duration &)
 {
-  if (!driver_) {
-    RCLCPP_ERROR(logger_, "write: driver not initialized");
+  if (!sensor_) {
+    RCLCPP_ERROR(logger_, "write: sensor not initialized");
     return hardware_interface::return_type::ERROR;
   }
 
-  // ── Batch: construction de toutes les trames en mémoire ───────────────────
   std::vector<uint8_t> batch;
   batch.reserve(kServoFrameSize * servo_ids_.size());
 
@@ -429,20 +667,18 @@ hardware_interface::return_type MutoHexapodHardware::write(
     const int16_t clamped = static_cast<int16_t>(
       std::max(-90.0, std::min(90.0, std::round(deg))));
     const uint8_t angle_byte = degrees_to_protocol_byte(clamped);
-    const uint8_t id   = servo_ids_[i];
+    const uint8_t id    = servo_ids_[i];
     const uint8_t spd_h = static_cast<uint8_t>((servo_speed_ >> 8) & 0xFF);
     const uint8_t spd_l = static_cast<uint8_t>( servo_speed_       & 0xFF);
 
-    // Checksum: 255 - ((LEN + INSTR + ADDR + ID + ANGLE + SPD_H + SPD_L) % 256)
-    const uint8_t len   = static_cast<uint8_t>(kServoFrameSize);  // 12
-    const uint8_t instr = 0x01;  // Write
-    const uint8_t addr  = kRegServoPosition;  // 0x40
+    const uint8_t len   = static_cast<uint8_t>(kServoFrameSize);
+    const uint8_t instr = 0x01;
+    const uint8_t addr  = kRegServoPosition;
     const uint8_t chk   = static_cast<uint8_t>(
       255 - ((len + instr + addr + id + angle_byte + spd_h + spd_l) % 256));
 
-    // Trame complète (12 bytes)
-    batch.push_back(0x55);       // header1
-    batch.push_back(0x00);       // header2
+    batch.push_back(0x55);
+    batch.push_back(0x00);
     batch.push_back(len);
     batch.push_back(instr);
     batch.push_back(addr);
@@ -451,15 +687,23 @@ hardware_interface::return_type MutoHexapodHardware::write(
     batch.push_back(spd_h);
     batch.push_back(spd_l);
     batch.push_back(chk);
-    batch.push_back(0x00);       // tail1
-    batch.push_back(0xAA);       // tail2
+    batch.push_back(0x00);
+    batch.push_back(0xAA);
   }
 
   if (batch.empty()) return hardware_interface::return_type::OK;
 
-  // ── Envoi batch: 1 seul write() + 1 seul tcdrain() ───────────────────────
+  // try_lock: non-bloquant. Si le thread IMU tient le mutex, on saute ce
+  // cycle sans overrun. Les servos hobby (STS/SCS) retiennent leur dernière
+  // position → 1 cycle manqué à 50Hz est imperceptible mécaniquement.
+  std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    // IMU en cours de lecture — cycle sauté, pas d'overrun
+    return hardware_interface::return_type::OK;
+  }
+
   try {
-    driver_->writeRaw(batch);
+    sensor_->writeRaw(batch);
   } catch (const std::exception & e) {
     RCLCPP_ERROR_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 1000,
       "Batch write failed: %s", e.what());
