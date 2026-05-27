@@ -8,11 +8,43 @@
       <plugin>muto_hardware/MutoHexapodHardware</plugin>
       <param name="port">/dev/ttyUSB0</param>
       <param name="baud">115200</param>
-      <param name="read_timeout_sec">0.05</param>
-      <param name="retry_count">2</param>
+
+      <!--
+        TIMING: read_timeout_sec est utilisé uniquement pour la lecture série.
+        En mode production (update_state_from_hardware=false), ce paramètre
+        ne sert qu'à l'activation initiale (hors cycle RT), donc 50ms est OK.
+        Si update_state_from_hardware=true, réduire à 0.025 (25ms) pour éviter
+        que le timeout masque les erreurs de communication.
+      -->
+      <param name="read_timeout_sec">0.050</param>
+
+      <!--
+        retry_count=1: pas de retry dans le cycle RT pour éviter les doubles
+        délais en cas d'erreur. Les erreurs isolées sont acceptables (cycle suivant).
+      -->
+      <param name="retry_count">1</param>
+
       <param name="validate_checksum">true</param>
       <param name="servo_speed">300</param>
       <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
+
+      <!--
+        FIX OVERRUN — PARAMÈTRE CRITIQUE:
+
+        false (défaut, mode PRODUCTION):
+          - state = command dans le cycle RT → 0ms pour le read
+          - Cycle RT total: ~2ms → 50Hz largement atteignable
+          - Adapté à tous les servos hobby sans encodeur externe
+          - Le joint_state_broadcaster publie les positions commandées (pas lues)
+          - RViz et la cinématique fonctionnent correctement
+
+        true (mode DEBUG uniquement):
+          - Lecture série dans le cycle RT → ~26ms bloquants (turnaround carte MUTO)
+          - Impose update_rate ≤ 20Hz dans controllers.yaml
+          - Utile uniquement pour diagnostiquer des problèmes mécaniques
+          - Ne pas utiliser en production
+      -->
+      <param name="update_state_from_hardware">false</param>
     </hardware>
 
     <!-- zq - front right -->

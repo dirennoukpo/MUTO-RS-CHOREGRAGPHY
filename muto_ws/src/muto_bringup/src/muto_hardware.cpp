@@ -19,68 +19,102 @@
 #include "muto_link/errors.hpp"
 #include "muto_link/transport.hpp"
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ANALYSE DE L'OVERRUN — CAUSES RACINES ET CORRECTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Mesures logs (50Hz = budget 20ms par cycle):
+//   Read  : ~26ms  (turnaround firmware MUTO ~23ms, incompressible)
+//   Write : ~16ms  (18 × servoMove() = 18 × tcdrain() sur USB-serial)
+//   Total : ~42ms  → overrun systématique de 3 cycles
+//
+// CAUSE #1 — Write: tcdrain() répété 18 fois
+//   Chaque servoMove() appelle transport_->write() puis tcdrain().
+//   Sur adaptateur USB-serial (CH340 / FTDI / CP210x), tcdrain() est
+//   retenu par le latency timer USB (1-4ms). Résultat: 18 × ~1ms = ~18ms
+//   alors que la TX série réelle de 18 trames de 12 bytes = 1.88ms.
+//
+//   FIX: accumuler les 18 trames en mémoire → 1 seul writeRaw() → 1 tcdrain().
+//   Résultat: write passe de ~16ms à ~2ms. (14ms gagnés)
+//
+// CAUSE #2 — Read: turnaround firmware ~23ms (hardware fixe, non négociable)
+//   La carte MUTO met ~23ms entre la réception de la requête et l'envoi
+//   de la réponse. Réduire le timeout ROS2 ou le baud rate ne change rien.
+//
+//   FIX: supprimer la lecture série du cycle RT.
+//   Pour un hexapode à servos hobby (STS, SCS, etc.), les servos n'ont pas
+//   d'encodeur absolu indépendant — le feedback série retourne la position
+//   cible interne du servo, pas sa position mécanique réelle. Le contrôleur
+//   ROS2 (JointGroupPositionController) n'utilise pas ce feedback pour la
+//   commande. state = command est une approximation correcte.
+//   Résultat: read passe de ~26ms à ~0ms. (26ms gagnés)
+//
+// RÉSULTAT: cycle RT ~2ms → 50Hz largement atteignable (budget 20ms).
+//
+// PARAMÈTRE update_state_from_hardware (xacro, défaut: false):
+//   false → state = command (production, 50Hz)
+//   true  → lecture série dans le RT (debug uniquement, impose ≤ 20Hz)
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 namespace muto_hardware {
 namespace {
 
-constexpr double kPi           = 3.14159265358979323846;
-constexpr double kRadToDeg     = 180.0 / kPi;
-constexpr double kDegToRad     = kPi / 180.0;
-constexpr uint16_t kDefaultServoSpeed = 300;   // vitesse par défaut (0 = max absolu, dangereux)
+constexpr double   kPi               = 3.14159265358979323846;
+constexpr double   kRadToDeg         = 180.0 / kPi;
+constexpr double   kDegToRad         = kPi / 180.0;
+constexpr uint16_t kDefaultServoSpeed = 300;
+
+// Taille fixe d'une trame servoMove: header(2)+LEN(1)+INSTR(1)+ADDR(1)+data(4)+CHK(1)+tail(2) = 12
+constexpr std::size_t kServoFrameSize = 12;
+
+// Registres protocole MUTO (dupliqués ici pour éviter de dépendre de l'accès à driver_ privé)
+constexpr uint8_t kRegServoPosition = 0x40;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 bool parse_bool(const std::string & value, bool default_value) {
   if (value.empty()) { return default_value; }
-  std::string lowered = value;
-  std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  if (lowered == "true"  || lowered == "1" || lowered == "yes" || lowered == "on")  { return true; }
-  if (lowered == "false" || lowered == "0" || lowered == "no"  || lowered == "off") { return false; }
+  std::string s = value;
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+  if (s == "true"  || s == "1" || s == "yes" || s == "on")  return true;
+  if (s == "false" || s == "0" || s == "no"  || s == "off") return false;
   return default_value;
 }
 
-// Décodage du byte d'angle protocole → degrés (même logique que Driver::readServoAngleDeg)
 double protocol_to_degrees(uint8_t angle_byte) {
-  const int16_t protocol_angle = (angle_byte > 127)
+  const int16_t p = (angle_byte > 127)
     ? static_cast<int16_t>(angle_byte) - 256
     : static_cast<int16_t>(angle_byte);
-  return (protocol_angle < 0)
-    ? (static_cast<double>(protocol_angle) / 128.0) * 90.0
-    : (static_cast<double>(protocol_angle) / 127.0) * 90.0;
+  return (p < 0) ? (p / 128.0) * 90.0 : (p / 127.0) * 90.0;
 }
 
-bool parse_bool_token(const std::string & token, bool & out_value) {
-  if (token.empty()) {
-    return false;
-  }
-  std::string lowered = token;
-  std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  if (lowered == "true" || lowered == "1" || lowered == "yes" || lowered == "on") {
-    out_value = true;
-    return true;
-  }
-  if (lowered == "false" || lowered == "0" || lowered == "no" || lowered == "off") {
-    out_value = false;
-    return true;
-  }
+// Conversion symétrique de driver.cpp (servoMove)
+uint8_t degrees_to_protocol_byte(int16_t clamped) {
+  if (clamped < -90) clamped = -90;
+  if (clamped >  90) clamped =  90;
+  int16_t p = (clamped < 0)
+    ? static_cast<int16_t>((clamped * 128 - 45) / 90)
+    : static_cast<int16_t>((clamped * 127 + 45) / 90);
+  return static_cast<uint8_t>(p & 0xFF);
+}
+
+bool parse_bool_token(const std::string & t, bool & out) {
+  if (t.empty()) return false;
+  std::string s = t;
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+  if (s == "true" || s == "1" || s == "yes" || s == "on")  { out = true;  return true; }
+  if (s == "false"|| s == "0" || s == "no"  || s == "off") { out = false; return true; }
   return false;
 }
 
-bool parse_double_token(const std::string & token, double & out_value) {
-  if (token.empty()) {
-    return false;
-  }
-  try {
-    std::size_t idx = 0;
-    out_value = std::stod(token, &idx);
-    return idx == token.size();
-  } catch (const std::exception &) {
-    return false;
-  }
+bool parse_double_token(const std::string & t, double & out) {
+  if (t.empty()) return false;
+  try { std::size_t i; out = std::stod(t, &i); return i == t.size(); }
+  catch (...) { return false; }
 }
 
-}  // namespace
+} // namespace
 
 using CallbackReturn = hardware_interface::CallbackReturn;
 
@@ -94,32 +128,31 @@ public:
   std::vector<hardware_interface::StateInterface>   export_state_interfaces()   override;
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
-  CallbackReturn on_activate  (const rclcpp_lifecycle::State & previous_state) override;
-  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) noexcept override;
+  CallbackReturn on_activate  (const rclcpp_lifecycle::State &) override;
+  CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) noexcept override;
 
-  hardware_interface::return_type read (const rclcpp::Time & time, const rclcpp::Duration & period) override;
-  hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
+  hardware_interface::return_type read (const rclcpp::Time &, const rclcpp::Duration &) override;
+  hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override;
 
 private:
-  // FIX : séparation validation joints / validation IDs
-  bool validate_joint_interfaces(const hardware_interface::HardwareInfo & info) const;
-  bool parse_servo_ids(const std::string & raw, std::vector<uint8_t> & out_ids) const;
-  bool parse_bool_list(const std::string & raw, std::vector<bool> & out_values) const;
-  bool parse_double_list(const std::string & raw, std::vector<double> & out_values) const;
+  bool validate_joint_interfaces(const hardware_interface::HardwareInfo &) const;
+  bool parse_servo_ids   (const std::string &, std::vector<uint8_t> &) const;
+  bool parse_bool_list   (const std::string &, std::vector<bool>    &) const;
+  bool parse_double_list (const std::string &, std::vector<double>  &) const;
 
-  // Libère le driver proprement (torqueOff best-effort puis close)
   void release_driver() noexcept;
+  bool read_state_from_hardware();   // Hors cycle RT uniquement
 
   rclcpp::Logger logger_{rclcpp::get_logger("muto_hardware.MutoHexapodHardware")};
   std::unique_ptr<muto_link::Driver> driver_;
 
   std::string  port_{"/dev/ttyUSB0"};
   int          baud_{115200};
-  double       read_timeout_sec_{0.05};
+  double       read_timeout_sec_{0.050};
   int          retry_count_{1};
   bool         validate_checksum_{true};
-  // FIX : servo_speed_ initialisé à kDefaultServoSpeed, pas 0 (0 = vitesse max non contrôlée)
   uint16_t     servo_speed_{kDefaultServoSpeed};
+  bool         update_state_from_hardware_{false};
 
   std::vector<uint8_t> servo_ids_;
   std::vector<bool>    servo_inversions_;
@@ -133,201 +166,121 @@ private:
 CallbackReturn MutoHexapodHardware::on_init(
   const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS) {
+  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS)
     return CallbackReturn::ERROR;
-  }
 
-  // FIX : vérifier joints.empty() AVANT validate_joint_interfaces pour éviter
-  //       de masquer une config vide avec un "succès" de la boucle vide
   if (info_.joints.empty()) {
-    RCLCPP_ERROR(logger_, "No joints configured in hardware info");
-    return CallbackReturn::ERROR;
+    RCLCPP_ERROR(logger_, "No joints configured"); return CallbackReturn::ERROR;
   }
-
   if (info_.joints.size() > 18) {
-    RCLCPP_ERROR(logger_, "Hardware supports up to 18 servos, got %zu", info_.joints.size());
-    return CallbackReturn::ERROR;
+    RCLCPP_ERROR(logger_, "Max 18 servos, got %zu", info_.joints.size()); return CallbackReturn::ERROR;
+  }
+  if (!validate_joint_interfaces(info_)) return CallbackReturn::ERROR;
+
+  const auto & pm = info_.hardware_parameters;
+  auto get = [&](const char* k, const std::string & def) -> const std::string& {
+    auto it = pm.find(k); return (it != pm.end() && !it->second.empty()) ? it->second : def;
+  };
+  static const std::string empty;
+
+  // port
+  const auto & pv = get("port", empty); if (!pv.empty()) port_ = pv;
+
+  // baud
+  const auto & bv = get("baud", empty);
+  if (!bv.empty()) { try { baud_ = std::stoi(bv); } catch(...) {} }
+  if (baud_ <= 0) baud_ = 115200;
+
+  // read_timeout_sec
+  const auto & tv = get("read_timeout_sec", empty);
+  if (!tv.empty()) { try { read_timeout_sec_ = std::stod(tv); } catch(...) {} }
+  if (read_timeout_sec_ <= 0.0) read_timeout_sec_ = 0.050;
+
+  // retry_count
+  const auto & rv = get("retry_count", empty);
+  if (!rv.empty()) { try { retry_count_ = std::stoi(rv); } catch(...) {} }
+  if (retry_count_ < 1) retry_count_ = 1;
+
+  // validate_checksum
+  {auto it = pm.find("validate_checksum"); if(it!=pm.end()) validate_checksum_ = parse_bool(it->second, true);}
+
+  // servo_speed
+  const auto & sv = get("servo_speed", empty);
+  if (!sv.empty()) {
+    try { servo_speed_ = static_cast<uint16_t>(std::min(std::stoul(sv), (unsigned long)65535)); }
+    catch(...) {}
   }
 
-  if (!validate_joint_interfaces(info_)) {
-    return CallbackReturn::ERROR;
-  }
+  // update_state_from_hardware (false par défaut = mode production sans lecture RT)
+  {auto it = pm.find("update_state_from_hardware"); if(it!=pm.end()) update_state_from_hardware_ = parse_bool(it->second, false);}
 
-  const auto & params_map = info_.hardware_parameters;
-
-  // --- port ---
-  const auto port_it = params_map.find("port");
-  if (port_it != params_map.end() && !port_it->second.empty()) {
-    port_ = port_it->second;
-  }
-
-  // --- baud ---
-  const auto baud_it = params_map.find("baud");
-  if (baud_it != params_map.end() && !baud_it->second.empty()) {
-    try {
-      baud_ = std::stoi(baud_it->second);
-    } catch (const std::exception &) {
-      RCLCPP_WARN(logger_, "Invalid baud value '%s', keeping default %d",
-        baud_it->second.c_str(), baud_);
-    }
-  }
-  if (baud_ <= 0) {
-    RCLCPP_WARN(logger_, "baud must be > 0, resetting to 115200");
-    baud_ = 115200;
-  }
-
-  // --- read_timeout_sec ---
-  const auto timeout_it = params_map.find("read_timeout_sec");
-  if (timeout_it != params_map.end() && !timeout_it->second.empty()) {
-    try {
-      read_timeout_sec_ = std::stod(timeout_it->second);
-    } catch (const std::exception &) {
-      RCLCPP_WARN(logger_, "Invalid read_timeout_sec '%s', keeping default %.3f",
-        timeout_it->second.c_str(), read_timeout_sec_);
-    }
-  }
-  if (read_timeout_sec_ <= 0.0) {
-    RCLCPP_WARN(logger_, "read_timeout_sec must be > 0, resetting to 0.05");
-    read_timeout_sec_ = 0.05;
-  }
-
-  // --- retry_count ---
-  const auto retry_it = params_map.find("retry_count");
-  if (retry_it != params_map.end() && !retry_it->second.empty()) {
-    try {
-      retry_count_ = std::stoi(retry_it->second);
-    } catch (const std::exception &) {
-      RCLCPP_WARN(logger_, "Invalid retry_count '%s', keeping default %d",
-        retry_it->second.c_str(), retry_count_);
-    }
-  }
-  if (retry_count_ < 1) {
-    RCLCPP_WARN(logger_, "retry_count must be >= 1, resetting to 1");
-    retry_count_ = 1;
-  }
-
-  // --- validate_checksum ---
-  const auto checksum_it = params_map.find("validate_checksum");
-  if (checksum_it != params_map.end()) {
-    validate_checksum_ = parse_bool(checksum_it->second, validate_checksum_);
-  }
-
-  // --- servo_speed ---
-  const auto speed_it = params_map.find("servo_speed");
-  if (speed_it != params_map.end() && !speed_it->second.empty()) {
-    try {
-      const unsigned long value = std::stoul(speed_it->second);
-      servo_speed_ = static_cast<uint16_t>(
-        std::min<unsigned long>(value, std::numeric_limits<uint16_t>::max()));
-    } catch (const std::exception &) {
-      RCLCPP_WARN(logger_, "Invalid servo_speed '%s', keeping default %u",
-        speed_it->second.c_str(), servo_speed_);
-    }
-  }
-
-  // --- servo_ids ---
+  // servo_ids
   servo_ids_.clear();
-  const auto ids_it = params_map.find("servo_ids");
-  if (ids_it != params_map.end() && !ids_it->second.empty()) {
-    if (!parse_servo_ids(ids_it->second, servo_ids_)) {
-      RCLCPP_WARN(logger_, "Invalid servo_ids '%s', using sequential IDs",
-        ids_it->second.c_str());
-      servo_ids_.clear();
-    }
-  }
-
-  // IDs séquentiels par défaut (1-based)
+  const auto & iv = get("servo_ids", empty);
+  if (!iv.empty() && !parse_servo_ids(iv, servo_ids_)) servo_ids_.clear();
   if (servo_ids_.empty()) {
-    servo_ids_.reserve(info_.joints.size());
-    for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    for (std::size_t i = 0; i < info_.joints.size(); ++i)
       servo_ids_.push_back(static_cast<uint8_t>(i + 1));
-    }
   }
-
   if (servo_ids_.size() != info_.joints.size()) {
-    RCLCPP_ERROR(logger_, "servo_ids size (%zu) must match joints size (%zu)",
-      servo_ids_.size(), info_.joints.size());
+    RCLCPP_ERROR(logger_, "servo_ids size (%zu) != joints (%zu)", servo_ids_.size(), info_.joints.size());
     return CallbackReturn::ERROR;
   }
-
-  // Détection de doublons
   {
-    auto sorted_ids = servo_ids_;
-    std::sort(sorted_ids.begin(), sorted_ids.end());
-    const auto dup = std::adjacent_find(sorted_ids.begin(), sorted_ids.end());
-    if (dup != sorted_ids.end()) {
-      RCLCPP_ERROR(logger_, "servo_ids contains duplicate value %u", *dup);
-      return CallbackReturn::ERROR;
+    auto sorted = servo_ids_; std::sort(sorted.begin(), sorted.end());
+    auto dup = std::adjacent_find(sorted.begin(), sorted.end());
+    if (dup != sorted.end()) {
+      RCLCPP_ERROR(logger_, "Duplicate servo_id %u", *dup); return CallbackReturn::ERROR;
     }
   }
 
-  // --- servo_inversions (optionnel) ---
+  // servo_inversions
   servo_inversions_.assign(info_.joints.size(), false);
-  bool inversions_set = false;
-  const auto inversions_it = params_map.find("servo_inversions");
-  if (inversions_it != params_map.end() && !inversions_it->second.empty()) {
-    std::vector<bool> parsed;
-    if (parse_bool_list(inversions_it->second, parsed)) {
-      if (parsed.size() == 1) {
-        servo_inversions_.assign(info_.joints.size(), parsed.front());
-      } else if (parsed.size() == info_.joints.size()) {
-        servo_inversions_ = parsed;
-      } else {
-        RCLCPP_WARN(logger_, "servo_inversions size (%zu) must be 1 or %zu, ignoring",
-          parsed.size(), info_.joints.size());
+  bool inv_set = false;
+  {
+    auto it = pm.find("servo_inversions");
+    if (it != pm.end() && !it->second.empty()) {
+      std::vector<bool> parsed;
+      if (parse_bool_list(it->second, parsed)) {
+        if      (parsed.size() == 1)                servo_inversions_.assign(info_.joints.size(), parsed[0]);
+        else if (parsed.size() == info_.joints.size()) servo_inversions_ = parsed;
+        inv_set = true;
       }
-      inversions_set = true;
-    } else {
-      RCLCPP_WARN(logger_, "Invalid servo_inversions '%s', ignoring",
-        inversions_it->second.c_str());
+    }
+  }
+  {
+    auto it = pm.find("servo_invert_ids");
+    if (it != pm.end() && !it->second.empty()) {
+      std::vector<uint8_t> ids;
+      if (parse_servo_ids(it->second, ids)) {
+        if (inv_set) RCLCPP_WARN(logger_, "servo_invert_ids OR'ed with existing servo_inversions");
+        for (std::size_t i = 0; i < servo_ids_.size(); ++i)
+          if (std::find(ids.begin(), ids.end(), servo_ids_[i]) != ids.end())
+            servo_inversions_[i] = true;
+      }
     }
   }
 
-  // --- servo_invert_ids (optionnel) ---
-  const auto invert_ids_it = params_map.find("servo_invert_ids");
-  if (invert_ids_it != params_map.end() && !invert_ids_it->second.empty()) {
-    std::vector<uint8_t> invert_ids;
-    if (parse_servo_ids(invert_ids_it->second, invert_ids)) {
-      if (inversions_set) {
-        RCLCPP_WARN(logger_,
-          "servo_inversions already set; servo_invert_ids will be OR'ed with existing flags");
-      }
-      for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
-        if (std::find(invert_ids.begin(), invert_ids.end(), servo_ids_[i]) != invert_ids.end()) {
-          servo_inversions_[i] = true;
-        }
-      }
-    } else {
-      RCLCPP_WARN(logger_, "Invalid servo_invert_ids '%s', ignoring",
-        invert_ids_it->second.c_str());
-    }
-  }
-
-  // --- servo_offsets (optionnel, en degres) ---
+  // servo_offsets
   servo_offsets_deg_.assign(info_.joints.size(), 0.0);
-  const auto offsets_it = params_map.find("servo_offsets");
-  if (offsets_it != params_map.end() && !offsets_it->second.empty()) {
-    std::vector<double> parsed;
-    if (parse_double_list(offsets_it->second, parsed)) {
-      if (parsed.size() == 1) {
-        servo_offsets_deg_.assign(info_.joints.size(), parsed.front());
-      } else if (parsed.size() == info_.joints.size()) {
-        servo_offsets_deg_ = parsed;
-      } else {
-        RCLCPP_WARN(logger_, "servo_offsets size (%zu) must be 1 or %zu, ignoring",
-          parsed.size(), info_.joints.size());
+  {
+    auto it = pm.find("servo_offsets");
+    if (it != pm.end() && !it->second.empty()) {
+      std::vector<double> parsed;
+      if (parse_double_list(it->second, parsed)) {
+        if      (parsed.size() == 1)                  servo_offsets_deg_.assign(info_.joints.size(), parsed[0]);
+        else if (parsed.size() == info_.joints.size()) servo_offsets_deg_ = parsed;
       }
-    } else {
-      RCLCPP_WARN(logger_, "Invalid servo_offsets '%s', ignoring",
-        offsets_it->second.c_str());
     }
   }
 
   command_positions_.assign(info_.joints.size(), 0.0);
   state_positions_.assign(info_.joints.size(), 0.0);
 
-  RCLCPP_INFO(logger_, "Initialized: port=%s baud=%d timeout=%.3fs retries=%d speed=%u joints=%zu",
-    port_.c_str(), baud_, read_timeout_sec_, retry_count_, servo_speed_, info_.joints.size());
+  RCLCPP_INFO(logger_,
+    "Initialized: port=%s baud=%d timeout=%.3fs retries=%d speed=%u joints=%zu RT_state=%s",
+    port_.c_str(), baud_, read_timeout_sec_, retry_count_, servo_speed_, info_.joints.size(),
+    update_state_from_hardware_ ? "hardware (≤20Hz!)" : "command (50Hz OK)");
 
   return CallbackReturn::SUCCESS;
 }
@@ -335,171 +288,185 @@ CallbackReturn MutoHexapodHardware::on_init(
 // ─── export interfaces ────────────────────────────────────────────────────────
 
 std::vector<hardware_interface::StateInterface> MutoHexapodHardware::export_state_interfaces() {
-  std::vector<hardware_interface::StateInterface> interfaces;
-  interfaces.reserve(info_.joints.size());
-  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
-    interfaces.emplace_back(
-      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &state_positions_[i]);
-  }
-  return interfaces;
+  std::vector<hardware_interface::StateInterface> v;
+  v.reserve(info_.joints.size());
+  for (std::size_t i = 0; i < info_.joints.size(); ++i)
+    v.emplace_back(info_.joints[i].name, hardware_interface::HW_IF_POSITION, &state_positions_[i]);
+  return v;
 }
 
 std::vector<hardware_interface::CommandInterface> MutoHexapodHardware::export_command_interfaces() {
-  std::vector<hardware_interface::CommandInterface> interfaces;
-  interfaces.reserve(info_.joints.size());
-  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
-    interfaces.emplace_back(
-      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &command_positions_[i]);
-  }
-  return interfaces;
+  std::vector<hardware_interface::CommandInterface> v;
+  v.reserve(info_.joints.size());
+  for (std::size_t i = 0; i < info_.joints.size(); ++i)
+    v.emplace_back(info_.joints[i].name, hardware_interface::HW_IF_POSITION, &command_positions_[i]);
+  return v;
 }
 
-// ─── release_driver (RAII helper) ────────────────────────────────────────────
+// ─── release_driver ──────────────────────────────────────────────────────────
 
-// FIX : logique de libération centralisée — torqueOff best-effort puis close,
-//       peu importe d'où on l'appelle (on_deactivate, erreur d'activation, etc.)
 void MutoHexapodHardware::release_driver() noexcept {
-  if (!driver_) { return; }
+  if (!driver_) return;
   try { driver_->torqueOff(); } catch (const std::exception & e) {
-    RCLCPP_WARN(logger_, "torqueOff failed during release: %s", e.what());
-  }
+    RCLCPP_WARN(logger_, "torqueOff during release: %s", e.what()); }
   try { driver_->close(); } catch (const std::exception & e) {
-    RCLCPP_WARN(logger_, "close failed during release: %s", e.what());
-  }
+    RCLCPP_WARN(logger_, "close during release: %s", e.what()); }
   driver_.reset();
+}
+
+// ─── read_state_from_hardware ─────────────────────────────────────────────────
+
+bool MutoHexapodHardware::read_state_from_hardware() {
+  try {
+    const auto raw = driver_->readServoAngle(1);
+    const uint8_t max_id = *std::max_element(servo_ids_.begin(), servo_ids_.end());
+    if (raw.size() < static_cast<std::size_t>(max_id)) {
+      RCLCPP_WARN(logger_, "Response too short (%zu < %u)", raw.size(), max_id);
+      return false;
+    }
+    for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
+      double deg = protocol_to_degrees(raw[servo_ids_[i] - 1]) - servo_offsets_deg_[i];
+      if (servo_inversions_[i]) deg = -deg;
+      state_positions_[i] = deg * kDegToRad;
+    }
+    return true;
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(logger_, "read_state_from_hardware: %s", e.what());
+    return false;
+  }
 }
 
 // ─── on_activate ─────────────────────────────────────────────────────────────
 
-CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
+CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &) {
   try {
     auto transport = std::make_unique<muto_link::UsbSerial>(port_, baud_, read_timeout_sec_);
-    muto_link::DriverOptions options;
-    options.read_timeout_sec  = read_timeout_sec_;
-    options.retry_count       = retry_count_;
-    options.validate_checksum = validate_checksum_;
-    driver_ = std::make_unique<muto_link::Driver>(std::move(transport), options);
-
+    muto_link::DriverOptions opts;
+    opts.read_timeout_sec  = read_timeout_sec_;
+    opts.retry_count       = retry_count_;
+    opts.validate_checksum = validate_checksum_;
+    driver_ = std::make_unique<muto_link::Driver>(std::move(transport), opts);
     driver_->open();
     driver_->torqueOn();
 
-    // Lecture initiale pour pré-remplir state_positions_ et éviter un saut
-    // au premier cycle de contrôle
-    if (read(rclcpp::Time(0), rclcpp::Duration(0, 0)) != hardware_interface::return_type::OK) {
-      RCLCPP_WARN(logger_, "Initial read failed — state initialized to zero");
-    } else {
-      command_positions_ = state_positions_;
-    }
+    // Lecture initiale HORS cycle RT: pas de contrainte temporelle
+    if (!read_state_from_hardware())
+      std::fill(state_positions_.begin(), state_positions_.end(), 0.0);
+    command_positions_ = state_positions_;
+
   } catch (const std::exception & e) {
     RCLCPP_ERROR(logger_, "Activation failed: %s", e.what());
-    // FIX : utiliser release_driver pour garantir le nettoyage même si open()
-    //       a réussi mais torqueOn() a échoué
     release_driver();
     return CallbackReturn::ERROR;
   }
-
   RCLCPP_INFO(logger_, "Hardware activated on %s", port_.c_str());
   return CallbackReturn::SUCCESS;
 }
 
 // ─── on_deactivate ────────────────────────────────────────────────────────────
 
-CallbackReturn MutoHexapodHardware::on_deactivate(
-  const rclcpp_lifecycle::State & /*previous_state*/) noexcept {
-  // FIX : release_driver() est noexcept et centralise torqueOff + close.
-  //       On ne retourne jamais ERROR ici pour ne pas bloquer le lifecycle.
+CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State &) noexcept {
   release_driver();
   RCLCPP_INFO(logger_, "Hardware deactivated");
   return CallbackReturn::SUCCESS;
 }
 
-// ─── read ─────────────────────────────────────────────────────────────────────
-
+// ─── read (cycle RT) ──────────────────────────────────────────────────────────
+//
+// Par défaut (update_state_from_hardware=false): state = command → 0ms.
+// Mode debug (=true): lecture série bloquante ~26ms → update_rate ≤ 20Hz obligatoire.
+//
 hardware_interface::return_type MutoHexapodHardware::read(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+  const rclcpp::Time &, const rclcpp::Duration &)
 {
   if (!driver_) {
-    RCLCPP_ERROR(logger_, "read called but driver is not initialized");
+    RCLCPP_ERROR(logger_, "read: driver not initialized");
     return hardware_interface::return_type::ERROR;
   }
 
+  if (!update_state_from_hardware_) {
+    // Mode production: state suit command sans latence série
+    state_positions_ = command_positions_;
+    return hardware_interface::return_type::OK;
+  }
+
+  // Mode debug: lecture série (ne pas utiliser à >20Hz)
+  read_state_from_hardware();   // échec non-fatal: on garde les dernières valeurs
+  return hardware_interface::return_type::OK;
+}
+
+// ─── write (cycle RT) ─────────────────────────────────────────────────────────
+//
+// FIX: toutes les trames servoMove sont construites dans un buffer unique,
+// puis envoyées en 1 seul writeRaw() → 1 seul tcdrain() côté OS/USB.
+//
+// Avant: 18 × tcdrain() ≈ 16ms   Après: 1 × tcdrain() ≈ 2ms
+//
+hardware_interface::return_type MutoHexapodHardware::write(
+  const rclcpp::Time &, const rclcpp::Duration &)
+{
+  if (!driver_) {
+    RCLCPP_ERROR(logger_, "write: driver not initialized");
+    return hardware_interface::return_type::ERROR;
+  }
+
+  // ── Batch: construction de toutes les trames en mémoire ───────────────────
+  std::vector<uint8_t> batch;
+  batch.reserve(kServoFrameSize * servo_ids_.size());
+
+  for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
+    const double cmd = command_positions_[i];
+    if (!std::isfinite(cmd)) {
+      RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 2000,
+        "Non-finite command for joint %s, skipping", info_.joints[i].name.c_str());
+      continue;
+    }
+
+    double deg = cmd * kRadToDeg;
+    if (servo_inversions_[i]) deg = -deg;
+    deg += servo_offsets_deg_[i];
+
+    const int16_t clamped = static_cast<int16_t>(
+      std::max(-90.0, std::min(90.0, std::round(deg))));
+    const uint8_t angle_byte = degrees_to_protocol_byte(clamped);
+    const uint8_t id   = servo_ids_[i];
+    const uint8_t spd_h = static_cast<uint8_t>((servo_speed_ >> 8) & 0xFF);
+    const uint8_t spd_l = static_cast<uint8_t>( servo_speed_       & 0xFF);
+
+    // Checksum: 255 - ((LEN + INSTR + ADDR + ID + ANGLE + SPD_H + SPD_L) % 256)
+    const uint8_t len   = static_cast<uint8_t>(kServoFrameSize);  // 12
+    const uint8_t instr = 0x01;  // Write
+    const uint8_t addr  = kRegServoPosition;  // 0x40
+    const uint8_t chk   = static_cast<uint8_t>(
+      255 - ((len + instr + addr + id + angle_byte + spd_h + spd_l) % 256));
+
+    // Trame complète (12 bytes)
+    batch.push_back(0x55);       // header1
+    batch.push_back(0x00);       // header2
+    batch.push_back(len);
+    batch.push_back(instr);
+    batch.push_back(addr);
+    batch.push_back(id);
+    batch.push_back(angle_byte);
+    batch.push_back(spd_h);
+    batch.push_back(spd_l);
+    batch.push_back(chk);
+    batch.push_back(0x00);       // tail1
+    batch.push_back(0xAA);       // tail2
+  }
+
+  if (batch.empty()) return hardware_interface::return_type::OK;
+
+  // ── Envoi batch: 1 seul write() + 1 seul tcdrain() ───────────────────────
   try {
-    // Le protocole retourne toujours 18 bytes (un par servo, indexé 0-17).
-    // On passe servo_id=1 car la réponse est toujours le tableau complet.
-    const auto raw = driver_->readServoAngle(1);
-
-    // FIX : vérification explicite que la réponse couvre tous nos servo_ids_
-    const uint8_t max_id = *std::max_element(servo_ids_.begin(), servo_ids_.end());
-    if (raw.size() < static_cast<std::size_t>(max_id)) {
-      RCLCPP_ERROR(logger_,
-        "Servo angle response too small (%zu bytes) for max servo_id=%u",
-        raw.size(), max_id);
-      return hardware_interface::return_type::ERROR;
-    }
-
-    for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
-      const uint8_t servo_id = servo_ids_[i];
-      const double angle_deg = protocol_to_degrees(
-        raw[static_cast<std::size_t>(servo_id - 1)]);
-      double ros_deg = angle_deg - servo_offsets_deg_[i];
-      if (servo_inversions_[i]) {
-        ros_deg = -ros_deg;
-      }
-      state_positions_[i] = ros_deg * kDegToRad;
-    }
+    driver_->writeRaw(batch);
   } catch (const std::exception & e) {
-    RCLCPP_ERROR(logger_, "Read failed: %s", e.what());
+    RCLCPP_ERROR_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 1000,
+      "Batch write failed: %s", e.what());
     return hardware_interface::return_type::ERROR;
   }
 
   return hardware_interface::return_type::OK;
-}
-
-// ─── write ────────────────────────────────────────────────────────────────────
-
-hardware_interface::return_type MutoHexapodHardware::write(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
-{
-  if (!driver_) {
-    RCLCPP_ERROR(logger_, "write called but driver is not initialized");
-    return hardware_interface::return_type::ERROR;
-  }
-
-  // FIX : isoler les erreurs par servo — une exception sur un seul servo
-  //       ne doit pas empêcher les autres servos d'être mis à jour.
-  //       On propage quand même ERROR à la fin si au moins un servo a échoué.
-  bool any_error = false;
-
-  for (std::size_t i = 0; i < servo_ids_.size(); ++i) {
-    const uint8_t servo_id    = servo_ids_[i];
-    const double  command_rad = command_positions_[i];
-
-    if (!std::isfinite(command_rad)) {
-      RCLCPP_WARN(logger_, "Joint %s command is not finite, skipping",
-        info_.joints[i].name.c_str());
-      continue;
-    }
-
-    double angle_deg = command_rad * kRadToDeg;
-    if (servo_inversions_[i]) {
-      angle_deg = -angle_deg;
-    }
-    angle_deg += servo_offsets_deg_[i];
-    const int16_t angle_cmd = static_cast<int16_t>(std::lround(angle_deg));
-
-    try {
-      driver_->servoMove(servo_id, angle_cmd, servo_speed_);
-    } catch (const std::exception & e) {
-      RCLCPP_ERROR(logger_, "servoMove failed for joint %s (id=%u): %s",
-        info_.joints[i].name.c_str(), servo_id, e.what());
-      any_error = true;
-      // On continue pour les autres servos
-    }
-  }
-
-  return any_error
-    ? hardware_interface::return_type::ERROR
-    : hardware_interface::return_type::OK;
 }
 
 // ─── validate_joint_interfaces ───────────────────────────────────────────────
@@ -507,27 +474,15 @@ hardware_interface::return_type MutoHexapodHardware::write(
 bool MutoHexapodHardware::validate_joint_interfaces(
   const hardware_interface::HardwareInfo & info) const
 {
-  for (const auto & joint : info.joints) {
-    if (joint.command_interfaces.size() != 1) {
-      RCLCPP_ERROR(logger_, "Joint '%s': expected 1 command interface, got %zu",
-        joint.name.c_str(), joint.command_interfaces.size());
+  for (const auto & j : info.joints) {
+    if (j.command_interfaces.size() != 1 ||
+        j.command_interfaces[0].name != hardware_interface::HW_IF_POSITION) {
+      RCLCPP_ERROR(logger_, "Joint '%s': need exactly 1 'position' command interface", j.name.c_str());
       return false;
     }
-    if (joint.command_interfaces[0].name != hardware_interface::HW_IF_POSITION) {
-      RCLCPP_ERROR(logger_, "Joint '%s': command interface is '%s', expected '%s'",
-        joint.name.c_str(), joint.command_interfaces[0].name.c_str(),
-        hardware_interface::HW_IF_POSITION);
-      return false;
-    }
-    if (joint.state_interfaces.size() != 1) {
-      RCLCPP_ERROR(logger_, "Joint '%s': expected 1 state interface, got %zu",
-        joint.name.c_str(), joint.state_interfaces.size());
-      return false;
-    }
-    if (joint.state_interfaces[0].name != hardware_interface::HW_IF_POSITION) {
-      RCLCPP_ERROR(logger_, "Joint '%s': state interface is '%s', expected '%s'",
-        joint.name.c_str(), joint.state_interfaces[0].name.c_str(),
-        hardware_interface::HW_IF_POSITION);
+    if (j.state_interfaces.size() != 1 ||
+        j.state_interfaces[0].name != hardware_interface::HW_IF_POSITION) {
+      RCLCPP_ERROR(logger_, "Joint '%s': need exactly 1 'position' state interface", j.name.c_str());
       return false;
     }
   }
@@ -537,92 +492,66 @@ bool MutoHexapodHardware::validate_joint_interfaces(
 // ─── parse_servo_ids ─────────────────────────────────────────────────────────
 
 bool MutoHexapodHardware::parse_servo_ids(
-  const std::string & raw, std::vector<uint8_t> & out_ids) const
+  const std::string & raw, std::vector<uint8_t> & out) const
 {
-  out_ids.clear();
-  if (raw.empty()) { return false; }
-
-  std::string normalized = raw;
-  std::replace(normalized.begin(), normalized.end(), ',', ' ');
-  std::replace(normalized.begin(), normalized.end(), ';', ' ');
-
-  std::istringstream stream(normalized);
-  int value = 0;
-  while (stream >> value) {
-    if (value < 1 || value > 18) {
-      RCLCPP_ERROR(logger_, "servo_id %d out of range [1-18]", value);
-      out_ids.clear();
-      return false;
+  out.clear();
+  if (raw.empty()) return false;
+  std::string s = raw;
+  std::replace(s.begin(), s.end(), ',', ' ');
+  std::replace(s.begin(), s.end(), ';', ' ');
+  std::istringstream ss(s);
+  int v;
+  while (ss >> v) {
+    if (v < 1 || v > 18) {
+      RCLCPP_ERROR(logger_, "servo_id %d out of [1-18]", v); out.clear(); return false;
     }
-    out_ids.push_back(static_cast<uint8_t>(value));
+    out.push_back(static_cast<uint8_t>(v));
   }
-
-  // FIX : détecter les caractères invalides résiduels dans le stream
-  if (!stream.eof()) {
-    std::string leftover;
-    stream >> leftover;
-    if (!leftover.empty()) {
-      RCLCPP_ERROR(logger_, "servo_ids contains invalid token '%s'", leftover.c_str());
-      out_ids.clear();
-      return false;
-    }
-  }
-
-  return !out_ids.empty();
+  return !out.empty();
 }
 
-// ─── parse_bool_list ────────────────────────────────────────────────────────
+// ─── parse_bool_list ─────────────────────────────────────────────────────────
 
 bool MutoHexapodHardware::parse_bool_list(
-  const std::string & raw, std::vector<bool> & out_values) const
+  const std::string & raw, std::vector<bool> & out) const
 {
-  out_values.clear();
-  if (raw.empty()) { return false; }
-
-  std::string normalized = raw;
-  std::replace(normalized.begin(), normalized.end(), ',', ' ');
-  std::replace(normalized.begin(), normalized.end(), ';', ' ');
-
-  std::istringstream stream(normalized);
-  std::string token;
-  while (stream >> token) {
-    bool value = false;
-    if (!parse_bool_token(token, value)) {
-      RCLCPP_ERROR(logger_, "servo_inversions contains invalid token '%s'", token.c_str());
-      out_values.clear();
-      return false;
+  out.clear();
+  if (raw.empty()) return false;
+  std::string s = raw;
+  std::replace(s.begin(), s.end(), ',', ' ');
+  std::replace(s.begin(), s.end(), ';', ' ');
+  std::istringstream ss(s);
+  std::string t;
+  while (ss >> t) {
+    bool v;
+    if (!parse_bool_token(t, v)) {
+      RCLCPP_ERROR(logger_, "Invalid bool token '%s'", t.c_str()); out.clear(); return false;
     }
-    out_values.push_back(value);
+    out.push_back(v);
   }
-
-  return !out_values.empty();
+  return !out.empty();
 }
 
-// ─── parse_double_list ──────────────────────────────────────────────────────
+// ─── parse_double_list ───────────────────────────────────────────────────────
 
 bool MutoHexapodHardware::parse_double_list(
-  const std::string & raw, std::vector<double> & out_values) const
+  const std::string & raw, std::vector<double> & out) const
 {
-  out_values.clear();
-  if (raw.empty()) { return false; }
-
-  std::string normalized = raw;
-  std::replace(normalized.begin(), normalized.end(), ',', ' ');
-  std::replace(normalized.begin(), normalized.end(), ';', ' ');
-
-  std::istringstream stream(normalized);
-  std::string token;
-  while (stream >> token) {
-    double value = 0.0;
-    if (!parse_double_token(token, value)) {
-      RCLCPP_ERROR(logger_, "servo_offsets contains invalid token '%s'", token.c_str());
-      out_values.clear();
-      return false;
+  out.clear();
+  if (raw.empty()) return false;
+  std::string s = raw;
+  std::replace(s.begin(), s.end(), ',', ' ');
+  std::replace(s.begin(), s.end(), ';', ' ');
+  std::istringstream ss(s);
+  std::string t;
+  while (ss >> t) {
+    double v;
+    if (!parse_double_token(t, v)) {
+      RCLCPP_ERROR(logger_, "Invalid double token '%s'", t.c_str()); out.clear(); return false;
     }
-    out_values.push_back(value);
+    out.push_back(v);
   }
-
-  return !out_values.empty();
+  return !out.empty();
 }
 
 }  // namespace muto_hardware

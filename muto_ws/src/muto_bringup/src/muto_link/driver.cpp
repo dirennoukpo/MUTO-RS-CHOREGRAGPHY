@@ -7,12 +7,6 @@
 
 namespace muto_link {
 
-/**
- * @brief Initialise le pilote avec un transport donné.
- * 
- * @param transport Pointeur unique au transport. Ne doit pas être nullptr.
- * @throws std::invalid_argument si transport est nullptr.
- */
 Driver::Driver(std::unique_ptr<Transport> transport)
     : Driver(std::move(transport), DriverOptions {}) {}
 
@@ -29,79 +23,35 @@ Driver::Driver(std::unique_ptr<Transport> transport, DriverOptions options)
     }
 }
 
-/**
- * @brief Ouvre la connexion de transport.
- * 
- * Délègue l'ouverture au transport sous-jacent.
- */
 void Driver::open() {
     transport_->open();
 }
 
-/**
- * @brief Ferme la connexion de transport.
- * 
- * Délègue la fermeture au transport sous-jacent.
- */
 void Driver::close() {
     transport_->close();
 }
 
-/**
- * @brief Active le couple sur tous les servos.
- * 
- * Envoie une trame d'écriture au registre de contrôle du couple
- * avec données nulles (signifie "activation").
- */
 void Driver::torqueOn() {
     const auto frame = Protocol::buildFrame(
         static_cast<uint8_t>(Instruction::Write), kRegTorque, {0x00});
     transport_->write(frame);
 }
 
-/**
- * @brief Désactive le couple sur tous les servos.
- * 
- * Envoie une trame d'écriture au registre de désactivation du couple.
- */
 void Driver::torqueOff() {
     const auto frame = Protocol::buildFrame(
         static_cast<uint8_t>(Instruction::Write), kRegTorqueOff, {0x00});
     transport_->write(frame);
 }
 
-/**
- * @brief Déplace un servo vers un angle cible.
- * 
- * Conversion d'angle :
- * - Plage utilisateur : [-90°, +90°]
- * - Plage protocole : [-128, +127] (entier signé sur 8 bits)
- * - Formule : protocol_angle = (user_angle * 127 ou 128) / 90
- * 
- * Données de commande :
- * [SERVO_ID] [ANGLE_BYTE] [SPEED_HIGH] [SPEED_LOW]
- * 
- * @param servo_id ID du servo (1-18)
- * @param angle_deg Angle cible (auto-limité à ±90°)
- * @param speed Vitesse de mouvement (0-65535)
- * @throws std::invalid_argument si servo_id n'est pas entre 1 et 18
- */
 void Driver::servoMove(uint8_t servo_id, int16_t angle_deg, uint16_t speed) {
-    // Validation de l'ID du servo
     if (servo_id < 1 || servo_id > 18) {
         throw std::invalid_argument("Driver::servoMove servo_id must be between 1 and 18");
     }
 
-    // Limitation de l'angle à la plage [-90°, +90°]
     int16_t clamped_angle = angle_deg;
-    if (clamped_angle < -90) {
-        clamped_angle = -90;
-    } else if (clamped_angle > 90) {
-        clamped_angle = 90;
-    }
+    if (clamped_angle < -90) { clamped_angle = -90; }
+    else if (clamped_angle > 90) { clamped_angle = 90; }
 
-    // Conversion de l'angle en format protocole (entier signé 8 bits)
-    // Mathématiquement : protocole = (angle * 127 ou 128) / 90
     int16_t protocol_angle = 0;
     if (clamped_angle < 0) {
         protocol_angle = static_cast<int16_t>((clamped_angle * 128 + (clamped_angle > 0 ? 45 : -45)) / 90);
@@ -109,29 +59,19 @@ void Driver::servoMove(uint8_t servo_id, int16_t angle_deg, uint16_t speed) {
         protocol_angle = static_cast<int16_t>((clamped_angle * 127 + 45) / 90);
     }
 
-    // Extraction de l'octet bas de l'angle signé
     const uint8_t angle_byte = static_cast<uint8_t>(protocol_angle & 0xFF);
 
-    // Construction des données de la commande
     std::vector<uint8_t> data;
     data.push_back(servo_id);
     const auto speed_bytes = Protocol::packUint16BE(speed);
     data.push_back(angle_byte);
     data.insert(data.end(), speed_bytes.begin(), speed_bytes.end());
 
-    // Envoi de la trame
     const auto frame = Protocol::buildFrame(
         static_cast<uint8_t>(Instruction::Write), kRegServoPosition, data);
     transport_->write(frame);
 }
 
-/**
- * @brief Lit l'angle actuel d'un servo.
- * 
- * @param servo_id ID du servo (1-18)
- * @return Données brutes d'angle
- * @throws std::invalid_argument si servo_id n'est pas entre 1 et 18
- */
 std::vector<uint8_t> Driver::readServoAngle(uint8_t servo_id) {
     if (servo_id < 1 || servo_id > 18) {
         throw std::invalid_argument("Driver::readServoAngle servo_id must be between 1 and 18");
@@ -165,12 +105,6 @@ ServoState Driver::readServoState(uint8_t servo_id) {
     };
 }
 
-/**
- * @brief Envoie une commande d'écriture bas-niveau.
- * 
- * @param address Adresse du registre
- * @param data Données à écrire
- */
 void Driver::write(uint8_t address, const std::vector<uint8_t>& data) {
     const auto frame = Protocol::buildFrame(static_cast<uint8_t>(Instruction::Write), address, data);
     int retries_left = options_.retry_count;
@@ -186,22 +120,27 @@ void Driver::write(uint8_t address, const std::vector<uint8_t>& data) {
     }
 }
 
-/**
- * @brief Envoie une commande de lecture bas-niveau.
- * 
- * Processus :
- * 1. Envoie la commande de lecture
- * 2. Reçoit l'en-tête de la réponse (3 octets)
- * 3. Extrait la longueur de la trame
- * 4. Reçoit le reste de la trame
- * 5. Valide la structure
- * 6. Retourne les données (sans en-tête, tail, instruction, address, checksum)
- * 
- * @param address Adresse du registre
- * @param data Commande spécifiant quoi lire
- * @return Données de la réponse
- * @throws std::runtime_error en cas d'erreur de communication
- */
+// ─── writeRaw ─────────────────────────────────────────────────────────────────
+//
+// FIX PRINCIPAL: écriture batch sans reconstruction de trame.
+//
+// Transmet les octets directement au transport (1 write système + 1 tcdrain).
+// Utilisé par MutoHexapodHardware::write() pour envoyer les 18 trames servoMove
+// en un seul appel, éliminant 17 tcdrain() superflus (~17ms gagnés à 115200 bauds
+// sur adaptateur USB-serial CH340/FTDI).
+//
+// Aucun retry: les données brutes ne sont pas re-encapsulables.
+// En cas d'erreur, l'appelant gère la reprise au cycle suivant.
+//
+void Driver::writeRaw(const std::vector<uint8_t>& raw_bytes) {
+    if (raw_bytes.empty()) { return; }
+    try {
+        transport_->write(raw_bytes);
+    } catch (const std::runtime_error& e) {
+        throw TransportError(std::string("Driver::writeRaw failed: ") + e.what());
+    }
+}
+
 std::vector<uint8_t> Driver::read(uint8_t address, const std::vector<uint8_t>& data) {
     int retries_left = options_.retry_count;
     while (true) {
@@ -247,9 +186,7 @@ std::vector<uint8_t> Driver::read(uint8_t address, const std::vector<uint8_t>& d
 
             return std::vector<uint8_t>(full_frame.begin() + 5, full_frame.end() - 3);
         } catch (const Error&) {
-            if (--retries_left <= 0) {
-                throw;
-            }
+            if (--retries_left <= 0) { throw; }
         } catch (const std::runtime_error& e) {
             if (--retries_left <= 0) {
                 throw TransportError(std::string("Driver::read transport failure: ") + e.what());

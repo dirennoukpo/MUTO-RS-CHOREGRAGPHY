@@ -62,7 +62,6 @@ install(TARGETS muto_link muto_hardware
 
 install(DIRECTORY include/ DESTINATION include)
 install(FILES muto_hardware_plugin.xml DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_export_include_directories(include)
 ament_export_libraries(muto_link muto_hardware)

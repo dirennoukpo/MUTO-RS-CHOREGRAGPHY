@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>muto_description</name>
+  <version>0.1.0</version>
+  <description>URDF, meshes, and config for the MUTO-RS hexapod</description>
+  <maintainer email="rosmaster@muto.local">rosmaster</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

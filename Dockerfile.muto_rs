@@ -75,6 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-hardware-interface \
     ros-${ROS_DISTRO}-composition \
     ros-${ROS_DISTRO}-rclcpp-lifecycle \
+    ros-${ROS_DISTRO}-xacro \
     && rm -rf /var/lib/apt/lists/*
 
 # IMU
@@ -107,6 +108,12 @@ RUN bash -c "\
         echo '[INFO] Aucun package ROS2 trouvé — build ignoré.'; \
     fi && \
     rm -rf /var/lib/apt/lists/* build log /root/.ros"
+
+# ---------------------------------------------------------------------------
+# Configuration FastDDS (profil XML base robot)
+# ---------------------------------------------------------------------------
+RUN mkdir -p /etc/fastdds
+COPY fastdds_base.xml /etc/fastdds/fastdds_base.xml
 
 # Entrypoint
 COPY entrypoint.sh /entrypoint.sh
