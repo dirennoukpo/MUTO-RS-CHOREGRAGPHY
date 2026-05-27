@@ -731,6 +731,14 @@ hardware_interface::return_type MutoHexapodHardware::write(
     return hardware_interface::return_type::ERROR;
   }
 
+  // Mode passif: aucune trame envoyée.
+  // Le firmware de la carte MUTO réactive le torque dès réception d'une
+  // commande 0x40 (position). Seul torqueOff() répété par le thread dédié
+  // maintient les servos libres. write() doit rester silencieux.
+  if (!torque_enabled_) {
+    return hardware_interface::return_type::OK;
+  }
+
   std::vector<uint8_t> batch;
   batch.reserve(kServoFrameSize * servo_ids_.size());
 
