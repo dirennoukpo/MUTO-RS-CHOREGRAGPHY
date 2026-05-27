@@ -27,7 +27,6 @@ target_include_directories(muto_link PUBLIC
 )
 
 target_compile_definitions(muto_link PRIVATE MUTO_LINK_CPP_EXPORTS)
-
 target_compile_features(muto_link PUBLIC cxx_std_17)
 
 # -- muto_hardware (ros2_control plugin) --
@@ -64,6 +63,11 @@ install(TARGETS muto_link muto_hardware
 
 install(DIRECTORY include/ DESTINATION include)
 install(FILES muto_hardware_plugin.xml DESTINATION share/${PROJECT_NAME})
+
+# AJOUT CRITIQUE : Permet à "ros2 launch" de localiser gazebo.launch.py et bringup.launch.py
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_export_include_directories(include)
 ament_export_libraries(muto_link muto_hardware)
