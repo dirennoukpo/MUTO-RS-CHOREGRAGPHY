@@ -97,6 +97,8 @@ RUN wget https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERS
     && cp -r onnxruntime-linux-aarch64-${ONNX_VERSION}/lib/* /usr/local/lib/ \
     && rm -rf onnxruntime-linux-aarch64-${ONNX_VERSION}*
 
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
 # Fichier FastDDS minimal
 RUN mkdir -p /etc/fastdds && \
     printf '<?xml version="1.0" encoding="UTF-8" ?>\n<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">\n</profiles>\n' \
