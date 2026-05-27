@@ -62,7 +62,7 @@
           - Les commandes de position sont toujours émises par write()
           - ATTENTION: le robot peut s'affaisser sous son propre poids
       -->
-      <param name="torque_enabled">false</param>
+      <param name="torque_enabled">true</param>
     </hardware>
 
     <!-- zq - front right -->
