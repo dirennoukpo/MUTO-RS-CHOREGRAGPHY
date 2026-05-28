@@ -8,60 +8,14 @@
       <plugin>muto_hardware/MutoHexapodHardware</plugin>
       <param name="port">/dev/ttyUSB0</param>
       <param name="baud">115200</param>
-
-      <!--
-        TIMING: read_timeout_sec is used only for serial reading.
-        In production mode (update_state_from_hardware=false), this parameter
-        is only used during initial activation (outside RT cycle), so 50ms is fine.
-        If update_state_from_hardware=true, reduce to 0.025 (25ms) to avoid
-        timeout masking communication errors.
-      -->
       <param name="read_timeout_sec">0.050</param>
-
-      <!--
-        retry_count=1: no retry in the RT cycle to avoid double
-        delays on error. Isolated errors are acceptable (next cycle handles it).
-      -->
       <param name="retry_count">1</param>
-
       <param name="validate_checksum">true</param>
-      <param name="servo_speed">60000</param>
+      <param name="servo_speed">300</param>
       <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
-
-      <!--
-        FIX OVERRUN — CRITICAL PARAMETER:
-
-        false (default, PRODUCTION mode):
-          - state = command in the RT cycle → 0ms for read
-          - Total RT cycle: ~2ms → 50Hz easily achievable
-          - Suitable for all hobby servos without external encoder
-          - joint_state_broadcaster publishes commanded positions (not read)
-          - RViz and kinematics work correctly
-
-        true (DEBUG mode only):
-          - Serial read in the RT cycle → ~26ms blocking (MUTO board turnaround)
-          - Requires update_rate ≤ 20Hz in controllers.yaml
-          - Only useful for diagnosing mechanical issues
-          - Do not use in production
-      -->
       <param name="update_state_from_hardware">false</param>
-
-      <param name="imu_publish_rate">10.0</param>   <!-- Hz, max ~10 recommended -->
+      <param name="imu_publish_rate">20.0</param>
       <param name="imu_frame_id">imu_link</param>
-
-      <!--
-        TORQUE:
-
-        true (default, NORMAL mode):
-          - torqueOn()  called on activation   → servos resist passively
-          - torqueOff() called on deactivation → servos release
-
-        false (PASSIVE / mechanical debug mode):
-          - Servos remain free even after activation (no torque applied)
-          - Useful for moving legs by hand without fighting torque
-          - Position commands are still sent by write()
-          - WARNING: robot may collapse under its own weight
-      -->
       <param name="torque_enabled">true</param>
     </hardware>
 
@@ -93,8 +47,8 @@
     <!-- zz - Mid Left -->
     <joint name="zz1_Joint">
       <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -108,7 +62,7 @@
     <joint name="zz3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="max">0.7</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -116,8 +70,8 @@
     <!-- zh - Rear Left -->
     <joint name="zh1_Joint">
       <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -131,7 +85,7 @@
     <joint name="zh3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="max">0.7</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -141,8 +95,8 @@
     <!-- yq - Front Right -->
     <joint name="yq1_Joint">
       <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -156,7 +110,7 @@
     <joint name="yq3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="max">0.7</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -164,8 +118,8 @@
     <!-- yz - Mid Right -->
     <joint name="yz1_Joint">
       <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -179,7 +133,7 @@
     <joint name="yz3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="max">0.7</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -187,8 +141,8 @@
     <!-- yh - Rear Right -->
     <joint name="yh1_Joint">
       <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>
@@ -202,7 +156,7 @@
     <joint name="yh3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
-        <param name="max">1.57</param>
+        <param name="max">0.7</param>
       </command_interface>
       <state_interface name="position"/>
     </joint>

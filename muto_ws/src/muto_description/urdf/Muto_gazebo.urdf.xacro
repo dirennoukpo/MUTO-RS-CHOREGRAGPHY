@@ -1,7 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org" name="muto_robot">
 
-  <!-- Artificial root link for KDL and Gazebo -->
   <link name="dummy_root"/>
 
   <joint name="dummy_to_base_joint" type="fixed">
@@ -10,7 +9,6 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <!-- Include original SolidWorks URDF -->
   <xacro:include filename="$(find muto_description)/urdf/Muto_2.urdf"/>
 
   <ros2_control name="MutoHardwareInterface" type="system">
@@ -22,7 +20,7 @@
 
     <!-- zq - Front Left -->
     <joint name="zq1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="zq2_Joint">
@@ -30,13 +28,13 @@
       <state_interface name="position"/>
     </joint>
     <joint name="zq3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
     <!-- zz - Mid Left -->
     <joint name="zz1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="zz2_Joint">
@@ -44,13 +42,13 @@
       <state_interface name="position"/>
     </joint>
     <joint name="zz3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
     <!-- zh - Rear Left -->
     <joint name="zh1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="zh2_Joint">
@@ -58,7 +56,7 @@
       <state_interface name="position"/>
     </joint>
     <joint name="zh3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
@@ -66,7 +64,7 @@
 
     <!-- yq - Front Right -->
     <joint name="yq1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="yq2_Joint">
@@ -74,13 +72,13 @@
       <state_interface name="position"/>
     </joint>
     <joint name="yq3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
     <!-- yz - Mid Right -->
     <joint name="yz1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="yz2_Joint">
@@ -88,13 +86,13 @@
       <state_interface name="position"/>
     </joint>
     <joint name="yz3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
     <!-- yh - Rear Right -->
     <joint name="yh1_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.2</param><param name="max">1.2</param></command_interface>
       <state_interface name="position"/>
     </joint>
     <joint name="yh2_Joint">
@@ -102,7 +100,7 @@
       <state_interface name="position"/>
     </joint>
     <joint name="yh3_Joint">
-      <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+      <command_interface name="position"><param name="min">-1.57</param><param name="max">0.7</param></command_interface>
       <state_interface name="position"/>
     </joint>
 
