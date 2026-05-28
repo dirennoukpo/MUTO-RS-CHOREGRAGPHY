@@ -25,7 +25,7 @@
       <param name="retry_count">1</param>
 
       <param name="validate_checksum">true</param>
-      <param name="servo_speed">0</param>
+      <param name="servo_speed">300</param>
       <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
 
       <!--
@@ -62,7 +62,7 @@
           - Les commandes de position sont toujours émises par write()
           - ATTENTION: le robot peut s'affaisser sous son propre poids
       -->
-      <param name="torque_enabled">false</param>
+      <param name="torque_enabled">true</param>
     </hardware>
 
     <!-- zq - front right -->

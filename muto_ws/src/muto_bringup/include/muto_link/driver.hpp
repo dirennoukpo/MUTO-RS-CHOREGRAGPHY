@@ -49,9 +49,6 @@ public:
     void torqueOff();
     void torqueOnServo(uint8_t servo_id);
     void torqueOffServo(uint8_t servo_id);
-    // Variantes RT (1ms inter-servo) pour usage dans le cycle temps-réel.
-    void torqueOnRt();
-    void torqueOffRt();
 
     void servoMove(uint8_t servo_id, int16_t angle_deg, uint16_t speed);
     std::vector<uint8_t> readServoAngle(uint8_t servo_id);
@@ -78,12 +75,9 @@ private:
 
     static constexpr uint8_t kServoIdMin         = 1;
     static constexpr uint8_t kServoIdMax         = 18;
-    // Délai inter-servo pour torque on/off (activation unique au démarrage).
+    // Délai inter-servo pour torque on/off.
     // Firmware MUTO ignore les trames trop rapprochées sur le bus half-duplex.
     static constexpr int kTorqueDelayMs   = 5;
-    // Délai réduit pour le cycle RT (torqueOn→write→torqueOff à chaque cycle).
-    // 1ms comme le code Python officiel (load_leg/unload_leg).
-    static constexpr int kTorqueDelayRtMs = 1;
 };
 
 } // namespace muto_link

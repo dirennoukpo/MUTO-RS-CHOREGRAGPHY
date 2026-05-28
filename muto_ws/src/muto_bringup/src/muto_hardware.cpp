@@ -352,10 +352,11 @@ CallbackReturn MutoHexapodHardware::on_init(
 
   if (!torque_enabled_) {
     RCLCPP_WARN(logger_,
-      "torque_enabled=false: mode passif actif.\n"
-      "  - write(): torqueOnRt → batch → torqueOffRt (~38ms/cycle)\n"
-      "  - read():  lecture hardware forcée → /joint_states reflète les angles réels\n"
-      "  → Réduire update_rate à 25Hz dans controllers.yaml pour éviter les overruns.");
+      "torque_enabled=false: mode calibration/debug actif.\n"
+      "  - write(): bloqué — aucune consigne envoyée aux servos\n"
+      "  - read():  lecture hardware forcée — /joint_states reflète les angles réels\n"
+      "  - Rate:    10Hz max (lecture ~26ms/cycle)\n"
+      "  Déplacer les pattes à la main librement. Passer à true pour déployer la politique.");
   }
 
   return CallbackReturn::SUCCESS;
@@ -629,18 +630,16 @@ CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State 
 
 // ─── read (cycle RT) ──────────────────────────────────────────────────────────
 //
-// Mode normal (torque_enabled=true, update_state_from_hardware=false) :
-//   state = command — pas de lecture série, 0ms, 50Hz OK.
+// update_state_from_hardware=false + torque_enabled=true  (PRODUCTION) :
+//   state = command — 0ms, 50Hz OK.
 //
-// Mode hardware (update_state_from_hardware=true) :
-//   lecture série réelle ~26ms, ≤20Hz obligatoire.
+// update_state_from_hardware=false + torque_enabled=false (PASSIF) :
+//   Lecture hardware forcée — les servos sont déplacés à la main,
+//   command_positions_ est obsolète. /joint_states reflète les angles réels.
+//   Budget ~26ms → compatible 25Hz avec write() passif (~38ms).
 //
-// Mode passif (torque_enabled=false) :
-//   Lecture série forcée même si update_state_from_hardware=false.
-//   Les servos sont déplacés à la main → command_positions_ ne reflète plus
-//   la réalité. La lecture réelle permet à /joint_states de suivre les angles
-//   réels, utile pour la calibration et la visualisation dans RViz.
-//   Budget lecture ~26ms → compatible avec write() passif (~38ms) à 25Hz.
+// update_state_from_hardware=true (DEBUG) :
+//   Lecture hardware systématique — update_rate ≤ 20Hz obligatoire.
 //
 hardware_interface::return_type MutoHexapodHardware::read(
   const rclcpp::Time &, const rclcpp::Duration &)
@@ -650,37 +649,33 @@ hardware_interface::return_type MutoHexapodHardware::read(
     return hardware_interface::return_type::ERROR;
   }
 
-  // Mode passif : lecture hardware forcée pour refléter les positions réelles
-  // (servos déplacés à la main, command_positions_ obsolètes).
-  if (!torque_enabled_ || update_state_from_hardware_) {
+  // Lecture hardware si : debug activé OU mode passif (angles réels requis)
+  if (update_state_from_hardware_ || !torque_enabled_) {
     std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
     if (lock.owns_lock()) {
       read_state_from_hardware();
     }
-    // Mutex occupé par thread IMU ou write() passif → on garde les dernières
-    // valeurs connues, acceptables sur 1 cycle manqué.
+    // Mutex occupé (thread IMU ou write passif) → dernières valeurs conservées
     return hardware_interface::return_type::OK;
   }
 
-  // Mode normal : state = command, pas de lecture série.
+  // Mode production : state = command, pas de lecture série.
   state_positions_ = command_positions_;
   return hardware_interface::return_type::OK;
 }
 
 // ─── write (cycle RT) ─────────────────────────────────────────────────────────
 //
-// ─── write (cycle RT) ─────────────────────────────────────────────────────────
+// torque_enabled=true  (PRODUCTION / politique RL active) :
+//   writeRaw(batch) — servos sous couple, politique envoie ses consignes.
+//   Le robot maintient l'équilibre et résiste aux perturbations. ~2ms, 50Hz.
 //
-// Mode torque_enabled=true (normal) :
-//   writeRaw(batch) — servos sous couple permanent, cycle ~2ms.
-//
-// Mode torque_enabled=false (passif / calibration manuelle) :
-//   torqueOnRt() → writeRaw(batch) → torqueOffRt()
-//   Les servos sont activés le temps de recevoir la consigne de position,
-//   puis relâchés immédiatement. Budget ~38ms → update_rate ≤ 25Hz dans ce mode.
-//
-// Dans les deux cas, try_lock sur serial_mutex_ : si le thread IMU tient le
-// mutex, le cycle est sauté sans overrun (les servos retiennent la dernière pos).
+// torque_enabled=false (CALIBRATION / déplacement manuel) :
+//   write() bloqué — aucune consigne envoyée.
+//   Les servos restent libres (torqueOff() déjà envoyé à on_activate).
+//   read() lit les angles réels → /joint_states suit les positions manuelles.
+//   Utile pour calibration, collecte de données pour Isaac Lab, vérification
+//   mécanique avant déploiement de la politique.
 //
 hardware_interface::return_type MutoHexapodHardware::write(
   const rclcpp::Time &, const rclcpp::Duration &)
@@ -688,6 +683,11 @@ hardware_interface::return_type MutoHexapodHardware::write(
   if (!sensor_) {
     RCLCPP_ERROR(logger_, "write: sensor not initialized");
     return hardware_interface::return_type::ERROR;
+  }
+
+  // Mode calibration : write bloqué, servos libres.
+  if (!torque_enabled_) {
+    return hardware_interface::return_type::OK;
   }
 
   std::vector<uint8_t> batch;
@@ -718,37 +718,22 @@ hardware_interface::return_type MutoHexapodHardware::write(
     const uint8_t chk   = static_cast<uint8_t>(
       255 - ((len + instr + addr + id + angle_byte + spd_h + spd_l) % 256));
 
-    batch.push_back(0x55);
-    batch.push_back(0x00);
-    batch.push_back(len);
-    batch.push_back(instr);
-    batch.push_back(addr);
-    batch.push_back(id);
+    batch.push_back(0x55); batch.push_back(0x00);
+    batch.push_back(len);  batch.push_back(instr);
+    batch.push_back(addr); batch.push_back(id);
     batch.push_back(angle_byte);
-    batch.push_back(spd_h);
-    batch.push_back(spd_l);
+    batch.push_back(spd_h); batch.push_back(spd_l);
     batch.push_back(chk);
-    batch.push_back(0x00);
-    batch.push_back(0xAA);
+    batch.push_back(0x00); batch.push_back(0xAA);
   }
 
   if (batch.empty()) return hardware_interface::return_type::OK;
 
   std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
-  if (!lock.owns_lock()) {
-    return hardware_interface::return_type::OK;
-  }
+  if (!lock.owns_lock()) return hardware_interface::return_type::OK;
 
   try {
-    if (!torque_enabled_) {
-      // Mode passif : torqueOnRt → position → torqueOffRt
-      // Les servos reçoivent la consigne puis sont relâchés immédiatement.
-      sensor_->torqueOnRt();
-      sensor_->writeRaw(batch);
-      sensor_->torqueOffRt();
-    } else {
-      sensor_->writeRaw(batch);
-    }
+    sensor_->writeRaw(batch);
   } catch (const std::exception & e) {
     RCLCPP_ERROR_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 1000,
       "Batch write failed: %s", e.what());

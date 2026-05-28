@@ -70,23 +70,6 @@ void Driver::torqueOff() {
     }
 }
 
-// Variantes RT : délai réduit à 1ms (comme load_leg/unload_leg Python officiel).
-// Utilisées dans le cycle write() : torqueOnRt → writeRaw → torqueOffRt.
-// Budget approximatif : 18×1ms + 18×1ms + ~2ms batch = ~38ms → rate ≤ 25Hz.
-void Driver::torqueOnRt() {
-    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
-        torqueOnServo(id);
-        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayRtMs));
-    }
-}
-
-void Driver::torqueOffRt() {
-    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
-        torqueOffServo(id);
-        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayRtMs));
-    }
-}
-
 void Driver::servoMove(uint8_t servo_id, int16_t angle_deg, uint16_t speed) {
     if (servo_id < 1 || servo_id > 18) {
         throw std::invalid_argument("Driver::servoMove servo_id must be between 1 and 18");
