@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org" name="muto_robot">
 
-  <!-- 1. Lien racine artificiel pour KDL et Gazebo -->
+  <!-- Artificial root link for KDL and Gazebo -->
   <link name="dummy_root"/>
-  
+
   <joint name="dummy_to_base_joint" type="fixed">
     <parent link="dummy_root"/>
     <child link="base_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <!-- Inclure votre fichier URDF original de SolidWorks -->
+  <!-- Include original SolidWorks URDF -->
   <xacro:include filename="$(find muto_description)/urdf/Muto_2.urdf"/>
 
   <ros2_control name="MutoHardwareInterface" type="system">
@@ -18,8 +18,9 @@
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
     </hardware>
 
+    <!-- ─── LEFT SIDE ─────────────────────────────────────────── -->
 
-    <!-- zq - front right -->
+    <!-- zq - Front Left -->
     <joint name="zq1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -33,7 +34,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- zz - mid right -->
+    <!-- zz - Mid Left -->
     <joint name="zz1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -47,7 +48,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- zh - rear right -->
+    <!-- zh - Rear Left -->
     <joint name="zh1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -61,7 +62,9 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yq - front left -->
+    <!-- ─── RIGHT SIDE ────────────────────────────────────────── -->
+
+    <!-- yq - Front Right -->
     <joint name="yq1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -75,7 +78,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yz - mid left -->
+    <!-- yz - Mid Right -->
     <joint name="yz1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -89,7 +92,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yh - rear left -->
+    <!-- yh - Rear Right -->
     <joint name="yh1_Joint">
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
@@ -102,16 +105,17 @@
       <command_interface name="position"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
       <state_interface name="position"/>
     </joint>
+
   </ros2_control>
 
-  <!-- 3. Plugin indispensable pour connecter ros2_control à Gazebo -->
+  <!-- Plugin required to connect ros2_control to Gazebo -->
   <gazebo>
     <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(find muto_description)/config/controllers.yaml</parameters>
     </plugin>
   </gazebo>
 
-  <!-- 4. Alignement du capteur IMU sur le dummy_root -->
+  <!-- IMU sensor aligned on dummy_root -->
   <gazebo reference="dummy_root">
     <sensor name="muto_gazebo_imu" type="imu">
       <always_on>1</always_on>

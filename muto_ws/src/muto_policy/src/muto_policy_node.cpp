@@ -98,12 +98,12 @@ public:
 
     // ── 5. Ordre des joints (doit correspondre à Isaac Lab) ───────────────────
     expected_joint_order_ = {
-      "zq1_Joint", "zq2_Joint", "zq3_Joint",
-      "zz1_Joint", "zz2_Joint", "zz3_Joint",
-      "zh1_Joint", "zh2_Joint", "zh3_Joint",
       "yq1_Joint", "yq2_Joint", "yq3_Joint",
       "yz1_Joint", "yz2_Joint", "yz3_Joint",
       "yh1_Joint", "yh2_Joint", "yh3_Joint"
+      "zq1_Joint", "zq2_Joint", "zq3_Joint",
+      "zz1_Joint", "zz2_Joint", "zz3_Joint",
+      "zh1_Joint", "zh2_Joint", "zh3_Joint",
     };
 
     imu_data_.resize(NUM_IMU_CHANNELS, 0.0f);

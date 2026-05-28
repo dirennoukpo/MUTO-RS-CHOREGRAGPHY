@@ -10,17 +10,17 @@
       <param name="baud">115200</param>
 
       <!--
-        TIMING: read_timeout_sec est utilisé uniquement pour la lecture série.
-        En mode production (update_state_from_hardware=false), ce paramètre
-        ne sert qu'à l'activation initiale (hors cycle RT), donc 50ms est OK.
-        Si update_state_from_hardware=true, réduire à 0.025 (25ms) pour éviter
-        que le timeout masque les erreurs de communication.
+        TIMING: read_timeout_sec is used only for serial reading.
+        In production mode (update_state_from_hardware=false), this parameter
+        is only used during initial activation (outside RT cycle), so 50ms is fine.
+        If update_state_from_hardware=true, reduce to 0.025 (25ms) to avoid
+        timeout masking communication errors.
       -->
       <param name="read_timeout_sec">0.050</param>
 
       <!--
-        retry_count=1: pas de retry dans le cycle RT pour éviter les doubles
-        délais en cas d'erreur. Les erreurs isolées sont acceptables (cycle suivant).
+        retry_count=1: no retry in the RT cycle to avoid double
+        delays on error. Isolated errors are acceptable (next cycle handles it).
       -->
       <param name="retry_count">1</param>
 
@@ -29,43 +29,45 @@
       <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
 
       <!--
-        FIX OVERRUN — PARAMÈTRE CRITIQUE:
+        FIX OVERRUN — CRITICAL PARAMETER:
 
-        false (défaut, mode PRODUCTION):
-          - state = command dans le cycle RT → 0ms pour le read
-          - Cycle RT total: ~2ms → 50Hz largement atteignable
-          - Adapté à tous les servos hobby sans encodeur externe
-          - Le joint_state_broadcaster publie les positions commandées (pas lues)
-          - RViz et la cinématique fonctionnent correctement
+        false (default, PRODUCTION mode):
+          - state = command in the RT cycle → 0ms for read
+          - Total RT cycle: ~2ms → 50Hz easily achievable
+          - Suitable for all hobby servos without external encoder
+          - joint_state_broadcaster publishes commanded positions (not read)
+          - RViz and kinematics work correctly
 
-        true (mode DEBUG uniquement):
-          - Lecture série dans le cycle RT → ~26ms bloquants (turnaround carte MUTO)
-          - Impose update_rate ≤ 20Hz dans controllers.yaml
-          - Utile uniquement pour diagnostiquer des problèmes mécaniques
-          - Ne pas utiliser en production
+        true (DEBUG mode only):
+          - Serial read in the RT cycle → ~26ms blocking (MUTO board turnaround)
+          - Requires update_rate ≤ 20Hz in controllers.yaml
+          - Only useful for diagnosing mechanical issues
+          - Do not use in production
       -->
       <param name="update_state_from_hardware">false</param>
 
-      <param name="imu_publish_rate">10.0</param>   <!-- Hz, max ~10 recommandé -->
+      <param name="imu_publish_rate">10.0</param>   <!-- Hz, max ~10 recommended -->
       <param name="imu_frame_id">imu_link</param>
 
       <!--
         TORQUE:
 
-        true (défaut, mode NORMAL):
-          - torqueOn()  appelé à l'activation  → les servos résistent passivement
-          - torqueOff() appelé à la désactivation → les servos se relâchent
+        true (default, NORMAL mode):
+          - torqueOn()  called on activation   → servos resist passively
+          - torqueOff() called on deactivation → servos release
 
-        false (mode PASSIF / débogage mécanique):
-          - Les servos restent libres même après activation (aucun couple appliqué)
-          - Utile pour déplacer les pattes à la main sans forcer contre le couple
-          - Les commandes de position sont toujours émises par write()
-          - ATTENTION: le robot peut s'affaisser sous son propre poids
+        false (PASSIVE / mechanical debug mode):
+          - Servos remain free even after activation (no torque applied)
+          - Useful for moving legs by hand without fighting torque
+          - Position commands are still sent by write()
+          - WARNING: robot may collapse under its own weight
       -->
       <param name="torque_enabled">true</param>
     </hardware>
 
-    <!-- zq - front right -->
+    <!-- ─── LEFT SIDE ─────────────────────────────────────────── -->
+
+    <!-- zq - Front Left -->
     <joint name="zq1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
@@ -88,7 +90,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- zz - mid right -->
+    <!-- zz - Mid Left -->
     <joint name="zz1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
@@ -111,7 +113,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- zh - rear right -->
+    <!-- zh - Rear Left -->
     <joint name="zh1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
@@ -134,7 +136,9 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yq - front left -->
+    <!-- ─── RIGHT SIDE ────────────────────────────────────────── -->
+
+    <!-- yq - Front Right -->
     <joint name="yq1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
@@ -157,7 +161,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yz - mid left -->
+    <!-- yz - Mid Right -->
     <joint name="yz1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
@@ -180,7 +184,7 @@
       <state_interface name="position"/>
     </joint>
 
-    <!-- yh - rear left -->
+    <!-- yh - Rear Right -->
     <joint name="yh1_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>

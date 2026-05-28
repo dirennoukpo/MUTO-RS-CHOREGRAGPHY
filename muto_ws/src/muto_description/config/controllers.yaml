@@ -11,28 +11,28 @@ controller_manager:
 leg_controller:
   ros__parameters:
     joints:
-      # ─── CÔTÉ DROIT (RIGHT) ───
-      - zq1_Joint # Avant Droit (Front Right) - Coxa
-      - zq2_Joint # Avant Droit (Front Right) - Femur
-      - zq3_Joint # Avant Droit (Front Right) - Tibia
+      # ─── LEFT SIDE ───
+      - zq1_Joint # Front Left  - Coxa
+      - zq2_Joint # Front Left  - Femur
+      - zq3_Joint # Front Left  - Tibia
 
-      - zz1_Joint # Milieu Droit (Mid Right) - Coxa
-      - zz2_Joint # Milieu Droit (Mid Right) - Femur
-      - zz3_Joint # Milieu Droit (Mid Right) - Tibia
+      - zz1_Joint # Mid Left    - Coxa
+      - zz2_Joint # Mid Left    - Femur
+      - zz3_Joint # Mid Left    - Tibia
 
-      - zh1_Joint # Arrière Droit (Rear Right) - Coxa
-      - zh2_Joint # Arrière Droit (Rear Right) - Femur
-      - zh3_Joint # Arrière Droit (Rear Right) - Tibia
+      - zh1_Joint # Rear Left   - Coxa
+      - zh2_Joint # Rear Left   - Femur
+      - zh3_Joint # Rear Left   - Tibia
 
-      # ─── CÔTÉ GAUCHE (LEFT) ───
-      - yq1_Joint # Avant Gauche (Front Left) - Coxa
-      - yq2_Joint # Avant Gauche (Front Left) - Femur
-      - yq3_Joint # Avant Gauche (Front Left) - Tibia
+      # ─── RIGHT SIDE ───
+      - yq1_Joint # Front Right - Coxa
+      - yq2_Joint # Front Right - Femur
+      - yq3_Joint # Front Right - Tibia
 
-      - yz1_Joint # Milieu Gauche (Mid Left) - Coxa
-      - yz2_Joint # Milieu Gauche (Mid Left) - Femur
-      - yz3_Joint # Milieu Gauche (Mid Left) - Tibia
+      - yz1_Joint # Mid Right   - Coxa
+      - yz2_Joint # Mid Right   - Femur
+      - yz3_Joint # Mid Right   - Tibia
 
-      - yh1_Joint # Arrière Gauche (Rear Left) - Coxa
-      - yh2_Joint # Arrière Gauche (Rear Left) - Femur
-      - yh3_Joint # Arrière Gauche (Rear Left) - Tibia
+      - yh1_Joint # Rear Right  - Coxa
+      - yh2_Joint # Rear Right  - Femur
+      - yh3_Joint # Rear Right  - Tibia
