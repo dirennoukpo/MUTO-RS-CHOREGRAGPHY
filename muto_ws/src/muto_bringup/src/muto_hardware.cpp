@@ -180,13 +180,6 @@ private:
   void stop_imu_thread() noexcept;
   void publish_imu();
 
-  // ── Thread torqueOff continu (actif uniquement si torque_enabled_=false) ──
-  // Envoie torqueOff() en permanence pour contrer la réactivation implicite
-  // du couple par les trames position (reg 0x40) sur les servos STS/SCS.
-  void torque_off_thread_fn();
-  void start_torque_off_thread();
-  void stop_torque_off_thread() noexcept;
-
   // ── Logger ───────────────────────────────────────────────────────────────
   rclcpp::Logger logger_{rclcpp::get_logger("muto_hardware.MutoHexapodHardware")};
 
@@ -223,10 +216,6 @@ private:
   std::atomic<bool>   imu_running_{false};
   std::mutex          imu_cache_mutex_;
   ImuCache            imu_cache_;
-
-  // ── Thread torqueOff continu ──────────────────────────────────────────────
-  std::thread       torque_off_thread_;
-  std::atomic<bool> torque_off_running_{false};
 
   // ── Node interne ROS2 pour publication IMU ────────────────────────────────
   rclcpp::Node::SharedPtr imu_node_;
@@ -358,8 +347,16 @@ CallbackReturn MutoHexapodHardware::on_init(
     "Initialized: port=%s baud=%d timeout=%.3fs retries=%d speed=%u joints=%zu RT_state=%s torque=%s imu=%.0fHz frame=%s",
     port_.c_str(), baud_, read_timeout_sec_, retry_count_, servo_speed_, info_.joints.size(),
     update_state_from_hardware_ ? "hardware (≤20Hz!)" : "command (50Hz OK)",
-    torque_enabled_ ? "ON" : "OFF (passif)",
+    torque_enabled_ ? "ON" : "OFF (passif — update_rate ≤ 25Hz recommandé)",
     imu_publish_rate_, imu_frame_id_.c_str());
+
+  if (!torque_enabled_) {
+    RCLCPP_WARN(logger_,
+      "torque_enabled=false: mode passif actif.\n"
+      "  - write(): torqueOnRt → batch → torqueOffRt (~38ms/cycle)\n"
+      "  - read():  lecture hardware forcée → /joint_states reflète les angles réels\n"
+      "  → Réduire update_rate à 25Hz dans controllers.yaml pour éviter les overruns.");
+  }
 
   return CallbackReturn::SUCCESS;
 }
@@ -551,55 +548,6 @@ void MutoHexapodHardware::publish_imu() {
   }
 }
 
-// ─── Thread torqueOff continu ─────────────────────────────────────────────────
-//
-// Problème hardware STS/SCS: écrire en registre 0x40 (position) réactive
-// le couple implicitement, même après torqueOff(). À 50Hz, le cycle RT
-// envoie une trame position toutes les 20ms → le couple est réactivé 50x/s.
-//
-// Solution: ce thread tourne à ~100Hz et envoie torqueOff() en permanence
-// via try_lock sur serial_mutex_. Il est plus rapide que le cycle RT (20ms
-// vs ~10ms) donc il coupe le couple entre chaque trame position.
-//
-// Actif uniquement quand torque_enabled_=false.
-//
-void MutoHexapodHardware::torque_off_thread_fn() {
-  RCLCPP_INFO(logger_, "torqueOff thread started (100 Hz)");
-
-  while (torque_off_running_.load(std::memory_order_relaxed)) {
-    if (sensor_) {
-      // try_lock non-bloquant: si le cycle RT ou le thread IMU tient le mutex,
-      // on saute ce cycle (~10ms plus tard on réessaie). Pas de deadlock possible.
-      std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
-      if (lock.owns_lock()) {
-        try {
-          sensor_->torqueOff();
-        } catch (const std::exception & e) {
-          RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 5000,
-            "torqueOff thread error: %s", e.what());
-        }
-      }
-    }
-    // ~100Hz → intervalle 10ms. Suffisant pour couper le couple entre deux
-    // trames position du cycle RT (20ms) et les lectures IMU (50-100ms).
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  RCLCPP_INFO(logger_, "torqueOff thread stopped");
-}
-
-void MutoHexapodHardware::start_torque_off_thread() {
-  torque_off_running_.store(true);
-  torque_off_thread_ = std::thread(&MutoHexapodHardware::torque_off_thread_fn, this);
-}
-
-void MutoHexapodHardware::stop_torque_off_thread() noexcept {
-  torque_off_running_.store(false);
-  if (torque_off_thread_.joinable()) {
-    torque_off_thread_.join();
-  }
-}
-
 void MutoHexapodHardware::start_imu_thread() {
   // Créer le node interne ROS2 pour la publication
   rclcpp::NodeOptions opts;
@@ -644,10 +592,11 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &)
     if (torque_enabled_) {
       sensor_->torqueOn();
     } else {
-      // Les servos mémorisent leur dernier état (couple ON par défaut).
-      // Il faut appeler torqueOff() explicitement pour forcer le relâchement.
+      // Envoi servo par servo avec délai inter-trame (firmware MUTO exige
+      // des trames individuelles — le broadcast 0xFE est ignoré).
+      // torqueOff() boucle sur IDs 1–18 avec 5ms entre chaque.
       sensor_->torqueOff();
-      RCLCPP_WARN(logger_, "torque_enabled=false: torqueOff() envoyé, servos libres (aucun couple)");
+      RCLCPP_WARN(logger_, "torque_enabled=false: torqueOff() envoyé servo par servo, servos libres");
     }
 
     // Lecture initiale HORS cycle RT
@@ -661,13 +610,8 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
 
-  // Démarrer le thread IMU après l'activation du driver
+  // Démarrer le thread IMU
   start_imu_thread();
-
-  // Si torque désactivé, démarrer le thread torqueOff continu
-  if (!torque_enabled_) {
-    start_torque_off_thread();
-  }
 
   RCLCPP_INFO(logger_, "Hardware activated on %s (torque=%s, IMU @ %.0f Hz)",
     port_.c_str(), torque_enabled_ ? "ON" : "OFF", imu_publish_rate_);
@@ -677,9 +621,6 @@ CallbackReturn MutoHexapodHardware::on_activate(const rclcpp_lifecycle::State &)
 // ─── on_deactivate ────────────────────────────────────────────────────────────
 
 CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State &) noexcept {
-  // Arrêter le thread torqueOff EN PREMIER (libère serial_mutex_ immédiatement)
-  stop_torque_off_thread();
-  // Arrêter le thread IMU ensuite
   stop_imu_thread();
   release_driver();
   RCLCPP_INFO(logger_, "Hardware deactivated");
@@ -687,7 +628,20 @@ CallbackReturn MutoHexapodHardware::on_deactivate(const rclcpp_lifecycle::State 
 }
 
 // ─── read (cycle RT) ──────────────────────────────────────────────────────────
-
+//
+// Mode normal (torque_enabled=true, update_state_from_hardware=false) :
+//   state = command — pas de lecture série, 0ms, 50Hz OK.
+//
+// Mode hardware (update_state_from_hardware=true) :
+//   lecture série réelle ~26ms, ≤20Hz obligatoire.
+//
+// Mode passif (torque_enabled=false) :
+//   Lecture série forcée même si update_state_from_hardware=false.
+//   Les servos sont déplacés à la main → command_positions_ ne reflète plus
+//   la réalité. La lecture réelle permet à /joint_states de suivre les angles
+//   réels, utile pour la calibration et la visualisation dans RViz.
+//   Budget lecture ~26ms → compatible avec write() passif (~38ms) à 25Hz.
+//
 hardware_interface::return_type MutoHexapodHardware::read(
   const rclcpp::Time &, const rclcpp::Duration &)
 {
@@ -696,32 +650,37 @@ hardware_interface::return_type MutoHexapodHardware::read(
     return hardware_interface::return_type::ERROR;
   }
 
-  if (!update_state_from_hardware_) {
-    state_positions_ = command_positions_;
-    return hardware_interface::return_type::OK;
-  }
-
-  // Mode debug: lecture série des servos (bloquant ~26ms, ≤20Hz obligatoire)
-  {
+  // Mode passif : lecture hardware forcée pour refléter les positions réelles
+  // (servos déplacés à la main, command_positions_ obsolètes).
+  if (!torque_enabled_ || update_state_from_hardware_) {
     std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
     if (lock.owns_lock()) {
       read_state_from_hardware();
     }
-    // Si le thread IMU tient le mutex, on garde les dernières valeurs connues
+    // Mutex occupé par thread IMU ou write() passif → on garde les dernières
+    // valeurs connues, acceptables sur 1 cycle manqué.
+    return hardware_interface::return_type::OK;
   }
+
+  // Mode normal : state = command, pas de lecture série.
+  state_positions_ = command_positions_;
   return hardware_interface::return_type::OK;
 }
 
 // ─── write (cycle RT) ─────────────────────────────────────────────────────────
 //
-// Utilise try_lock (non-bloquant) sur serial_mutex_.
+// ─── write (cycle RT) ─────────────────────────────────────────────────────────
 //
-// Si le thread IMU tient le mutex (lecture ~52ms en cours), write() saute
-// l'envoi ce cycle plutôt que de bloquer et provoquer un overrun.
-// Les servos hobby tolèrent sans problème 1 cycle manqué à 50Hz (20ms).
+// Mode torque_enabled=true (normal) :
+//   writeRaw(batch) — servos sous couple permanent, cycle ~2ms.
 //
-// Si le mutex est libre (cas normal), il est acquis immédiatement et le
-// batch est envoyé en ~2ms, bien dans le budget de 20ms.
+// Mode torque_enabled=false (passif / calibration manuelle) :
+//   torqueOnRt() → writeRaw(batch) → torqueOffRt()
+//   Les servos sont activés le temps de recevoir la consigne de position,
+//   puis relâchés immédiatement. Budget ~38ms → update_rate ≤ 25Hz dans ce mode.
+//
+// Dans les deux cas, try_lock sur serial_mutex_ : si le thread IMU tient le
+// mutex, le cycle est sauté sans overrun (les servos retiennent la dernière pos).
 //
 hardware_interface::return_type MutoHexapodHardware::write(
   const rclcpp::Time &, const rclcpp::Duration &)
@@ -729,14 +688,6 @@ hardware_interface::return_type MutoHexapodHardware::write(
   if (!sensor_) {
     RCLCPP_ERROR(logger_, "write: sensor not initialized");
     return hardware_interface::return_type::ERROR;
-  }
-
-  // Mode passif: aucune trame envoyée.
-  // Le firmware de la carte MUTO réactive le torque dès réception d'une
-  // commande 0x40 (position). Seul torqueOff() répété par le thread dédié
-  // maintient les servos libres. write() doit rester silencieux.
-  if (!torque_enabled_) {
-    return hardware_interface::return_type::OK;
   }
 
   std::vector<uint8_t> batch;
@@ -783,17 +734,21 @@ hardware_interface::return_type MutoHexapodHardware::write(
 
   if (batch.empty()) return hardware_interface::return_type::OK;
 
-  // try_lock: non-bloquant. Si le thread IMU tient le mutex, on saute ce
-  // cycle sans overrun. Les servos hobby (STS/SCS) retiennent leur dernière
-  // position → 1 cycle manqué à 50Hz est imperceptible mécaniquement.
   std::unique_lock<std::mutex> lock(serial_mutex_, std::try_to_lock);
   if (!lock.owns_lock()) {
-    // IMU en cours de lecture — cycle sauté, pas d'overrun
     return hardware_interface::return_type::OK;
   }
 
   try {
-    sensor_->writeRaw(batch);
+    if (!torque_enabled_) {
+      // Mode passif : torqueOnRt → position → torqueOffRt
+      // Les servos reçoivent la consigne puis sont relâchés immédiatement.
+      sensor_->torqueOnRt();
+      sensor_->writeRaw(batch);
+      sensor_->torqueOffRt();
+    } else {
+      sensor_->writeRaw(batch);
+    }
   } catch (const std::exception & e) {
     RCLCPP_ERROR_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 1000,
       "Batch write failed: %s", e.what());

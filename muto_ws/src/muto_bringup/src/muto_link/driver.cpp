@@ -1,7 +1,9 @@
 #include "muto_link/driver.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 #include "muto_link/errors.hpp"
 
@@ -31,16 +33,58 @@ void Driver::close() {
     transport_->close();
 }
 
-void Driver::torqueOn() {
+// ─── Torque par servo ─────────────────────────────────────────────────────────
+//
+// Leçon apprise par reverse-engineering firmware MUTO (STM32F103) :
+//   - Le broadcast 0xFE est ignoré pour les commandes torque
+//   - Il faut envoyer une trame individuelle par servo (data = servo_id)
+//   - Un délai de ~5ms entre chaque trame est nécessaire (bus half-duplex)
+//   - Certains servos récalcitrants nécessitent plusieurs tentatives
+//
+// Registres : 0x26 = TORQUE_ON, 0x27 = TORQUE_OFF (data = servo_id)
+//
+
+void Driver::torqueOnServo(uint8_t servo_id) {
     const auto frame = Protocol::buildFrame(
-        static_cast<uint8_t>(Instruction::Write), kRegTorque, {0x00});
+        static_cast<uint8_t>(Instruction::Write), kRegTorqueOn, {servo_id});
     transport_->write(frame);
 }
 
-void Driver::torqueOff() {
+void Driver::torqueOffServo(uint8_t servo_id) {
     const auto frame = Protocol::buildFrame(
-        static_cast<uint8_t>(Instruction::Write), kRegTorqueOff, {0x00});
+        static_cast<uint8_t>(Instruction::Write), kRegTorqueOff, {servo_id});
     transport_->write(frame);
+}
+
+void Driver::torqueOn() {
+    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
+        torqueOnServo(id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayMs));
+    }
+}
+
+void Driver::torqueOff() {
+    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
+        torqueOffServo(id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayMs));
+    }
+}
+
+// Variantes RT : délai réduit à 1ms (comme load_leg/unload_leg Python officiel).
+// Utilisées dans le cycle write() : torqueOnRt → writeRaw → torqueOffRt.
+// Budget approximatif : 18×1ms + 18×1ms + ~2ms batch = ~38ms → rate ≤ 25Hz.
+void Driver::torqueOnRt() {
+    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
+        torqueOnServo(id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayRtMs));
+    }
+}
+
+void Driver::torqueOffRt() {
+    for (uint8_t id = kServoIdMin; id <= kServoIdMax; ++id) {
+        torqueOffServo(id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(kTorqueDelayRtMs));
+    }
 }
 
 void Driver::servoMove(uint8_t servo_id, int16_t angle_deg, uint16_t speed) {
