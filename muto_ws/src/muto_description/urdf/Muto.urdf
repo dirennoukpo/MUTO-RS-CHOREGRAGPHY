@@ -363,12 +363,13 @@
     <limit lower="-1.57" upper="1.57" effort="4.2" velocity="7.0" />
   </joint>
 
-  <link name="yz3_Link">
+<link name="yz3_Link">
     <inertial>
-      <origin xyz="-0.167878639323886 -0.0669156700894921 -0.0412584534257358" rpy="0 0 0" />
-      <mass value="0.0295670684923118" />
-      <inertia ixx="1.46061473581415E-05" ixy="1.43453899477432E-17" ixz="3.41039519536991E-17"
-               iyy="1.69767083057896E-05" iyz="-3.54429340854454E-06" izz="7.61819604073987E-06" />
+      <!-- Corrected by symmetry with zz3_Link: x→-x, y→-y, z unchanged -->
+      <origin xyz="0.0276966292950182 -0.0222663472948247 -0.0434999371766091" rpy="0 0 0" />
+      <mass value="0.0280435236825223" />
+      <inertia ixx="1.45305886656455E-05" ixy="1.43743841469645E-17" ixz="-3.4133931803982E-17"
+               iyy="1.69375702139597E-05" iyz="3.5442934085445E-06" izz="7.57905794890989E-06" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -380,11 +381,11 @@
       <geometry><mesh filename="package://muto_description/meshes/yz3_Link.STL" /></geometry>
     </collision>
   </link>
-  <!-- FIX: yz3_Joint origin X was 0.195684337632199 (bug SolidWorks exporter) → corrected to 0.0497740601308618 by symmetry with zz3 -->
+  <!-- yz3_Joint: corrected by symmetry with zz3_Joint (origin X=0, Y negated, axis X negated→+1) -->
   <joint name="yz3_Joint" type="revolute">
-    <origin xyz="0.0497740601308618 -0.0250512362876254 0.015861531236519" rpy="0 0 0" />
+    <origin xyz="0 -0.0708479091470208 0.0158615312365403" rpy="0 0 0" />
     <parent link="yz2_Link" /><child link="yz3_Link" />
-    <axis xyz="0.711636313809377 0.702548045949743 0" />
+    <axis xyz="1 0 0" />
     <limit lower="-1.57" upper="0.8" effort="4.2" velocity="7.0" />
   </joint>
 
