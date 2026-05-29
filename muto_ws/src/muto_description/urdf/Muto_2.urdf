@@ -363,13 +363,13 @@
     <limit lower="-1.57" upper="1.57" effort="4.2" velocity="7.0" />
   </joint>
 
-<link name="yz3_Link">
+  <link name="yz3_Link">
     <inertial>
-      <!-- Corrected by symmetry with zz3_Link: x→-x, y→-y, z unchanged -->
-      <origin xyz="0.0276966292950182 -0.0222663472948247 -0.0434999371766091" rpy="0 0 0" />
+      <!-- Corrected by strict Y-symmetry with zz3_Link -->
+      <origin xyz="-0.0276966292950182 -0.0222663472948247 -0.0434999371766091" rpy="0 0 0" />
       <mass value="0.0280435236825223" />
       <inertia ixx="1.45305886656455E-05" ixy="1.43743841469645E-17" ixz="-3.4133931803982E-17"
-               iyy="1.69375702139597E-05" iyz="3.5442934085445E-06" izz="7.57905794890989E-06" />
+                iyy="1.69375702139597E-05" iyz="3.5442934085445E-06" izz="7.57905794890989E-06" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -381,7 +381,7 @@
       <geometry><mesh filename="package://muto_description/meshes/yz3_Link.STL" /></geometry>
     </collision>
   </link>
-  <!-- yz3_Joint: corrected by symmetry with zz3_Joint (origin X=0, Y negated, axis X negated→+1) -->
+  <!-- Corrected by strict Y-symmetry with zz3_Joint: x=0, y negated, axis negated -->
   <joint name="yz3_Joint" type="revolute">
     <origin xyz="0 -0.0708479091470208 0.0158615312365403" rpy="0 0 0" />
     <parent link="yz2_Link" /><child link="yz3_Link" />
