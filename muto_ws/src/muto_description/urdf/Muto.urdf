@@ -142,6 +142,7 @@
     <limit lower="-1.57" upper="1.57" effort="4.2" velocity="7.0" />
   </joint>
 
+  <!-- zz3 - référence pour la symétrie yz3 -->
   <link name="zz3_Link">
     <inertial>
       <origin xyz="-0.0276966292950182 0.0222663472948247 -0.0434999371766091" rpy="0 0 0" />
@@ -363,13 +364,15 @@
     <limit lower="-1.57" upper="1.57" effort="4.2" velocity="7.0" />
   </joint>
 
+  <!-- yz3 corrigé par symétrie stricte Y depuis zz3 (doc 10) -->
+  <!-- zz3 ref: CoM x=-0.0276966 y=+0.0222663 z=-0.0434999 | origin x=0 y=+0.0708479 z=+0.0158615 | axis -1 0 0 -->
+  <!-- yz3 sym: CoM x=-0.0276966 y=-0.0222663 z=-0.0434999 | origin x=0 y=-0.0708479 z=+0.0158615 | axis +1 0 0 -->
   <link name="yz3_Link">
     <inertial>
-      <!-- Corrected by strict Y-symmetry with zz3_Link -->
       <origin xyz="-0.0276966292950182 -0.0222663472948247 -0.0434999371766091" rpy="0 0 0" />
       <mass value="0.0280435236825223" />
       <inertia ixx="1.45305886656455E-05" ixy="1.43743841469645E-17" ixz="-3.4133931803982E-17"
-                iyy="1.69375702139597E-05" iyz="3.5442934085445E-06" izz="7.57905794890989E-06" />
+               iyy="1.69375702139597E-05" iyz="3.5442934085445E-06" izz="7.57905794890989E-06" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -381,7 +384,6 @@
       <geometry><mesh filename="package://muto_description/meshes/yz3_Link.STL" /></geometry>
     </collision>
   </link>
-  <!-- Corrected by strict Y-symmetry with zz3_Joint: x=0, y negated, axis negated -->
   <joint name="yz3_Joint" type="revolute">
     <origin xyz="0 -0.0708479091470208 0.0158615312365403" rpy="0 0 0" />
     <parent link="yz2_Link" /><child link="yz3_Link" />
@@ -419,7 +421,7 @@
       <origin xyz="-0.00289010592677472 -0.0441830666975163 0.0189457195557352" rpy="0 0 0" />
       <mass value="0.0168985875743191" />
       <inertia ixx="3.83292368499587E-06" ixy="-4.97754558978871E-07" ixz="4.56796884616836E-07"
-               iyy="3.82012710915593E-06" iyz="4.6270567026273E-07" izz="5.5489241135711E-06" />
+               iyy="3.82012710915593E-06" iyz="4.6270567026273-07" izz="5.5489241135711E-06" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -431,7 +433,7 @@
       <geometry><mesh filename="package://muto_description/meshes/yh2_Link.STL" /></geometry>
     </collision>
   </link>
-  <!-- FIX: joint name was "yh2_Link" in original (SolidWorks bug) → corrected to "yh2_Joint" -->
+  <!-- FIX: joint name was "yh2_Link" in original SolidWorks export -->
   <joint name="yh2_Joint" type="revolute">
     <origin xyz="-0.055226635669978 -0.0165734288280502 -0.027473927115545" rpy="0 0 0" />
     <parent link="yh1_Link" /><child link="yh2_Link" />
@@ -456,7 +458,7 @@
       <geometry><mesh filename="package://muto_description/meshes/yh3_Link.STL" /></geometry>
     </collision>
   </link>
-  <!-- FIX: joint name was "yh3_Link" in original (SolidWorks bug) → corrected to "yh3_Joint" -->
+  <!-- FIX: joint name was "yh3_Link" in original SolidWorks export -->
   <joint name="yh3_Joint" type="revolute">
     <origin xyz="-0.0497740601308654 -0.0504179449064808 0.0158615312365509" rpy="0 0 0" />
     <parent link="yh2_Link" /><child link="yh3_Link" />
@@ -483,7 +485,7 @@
       <geometry><mesh filename="package://muto_description/meshes/imu_Link.STL" /></geometry>
     </collision>
   </link>
-  <joint name="imu_link" type="fixed">
+  <joint name="imu_joint" type="fixed">
     <origin xyz="0.050316 0.0047788 0.053291" rpy="0 0 0" />
     <parent link="base_link" /><child link="imu_link" />
     <axis xyz="0 0 0" />
