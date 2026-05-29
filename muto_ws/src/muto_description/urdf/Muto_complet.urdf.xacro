@@ -19,77 +19,6 @@
       <param name="torque_enabled">true</param>
     </hardware>
 
-    <!-- ─── LEFT SIDE ─────────────────────────────────────────── -->
-
-    <!-- zq - Front Left -->
-    <joint name="zq1_Joint">
-      <command_interface name="position">
-        <param name="min">-1.2</param>
-        <param name="max">1.2</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zq2_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zq3_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">0.7</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-
-    <!-- zz - Mid Left -->
-    <joint name="zz1_Joint">
-      <command_interface name="position">
-        <param name="min">-1.2</param>
-        <param name="max">1.2</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zz2_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zz3_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">0.7</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-
-    <!-- zh - Rear Left -->
-    <joint name="zh1_Joint">
-      <command_interface name="position">
-        <param name="min">-1.2</param>
-        <param name="max">1.2</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zh2_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">1.57</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="zh3_Joint">
-      <command_interface name="position">
-        <param name="min">-1.57</param>
-        <param name="max">0.7</param>
-      </command_interface>
-      <state_interface name="position"/>
-    </joint>
-
     <!-- ─── RIGHT SIDE ────────────────────────────────────────── -->
 
     <!-- yq - Front Right -->
@@ -154,6 +83,77 @@
       <state_interface name="position"/>
     </joint>
     <joint name="yh3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">0.7</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+
+    <!-- ─── LEFT SIDE ─────────────────────────────────────────── -->
+
+    <!-- zq - Front Left -->
+    <joint name="zq1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zq2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zq3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">0.7</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+
+    <!-- zz - Mid Left -->
+    <joint name="zz1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zz2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zz3_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">0.7</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+
+    <!-- zh - Rear Left -->
+    <joint name="zh1_Joint">
+      <command_interface name="position">
+        <param name="min">-1.2</param>
+        <param name="max">1.2</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zh2_Joint">
+      <command_interface name="position">
+        <param name="min">-1.57</param>
+        <param name="max">1.57</param>
+      </command_interface>
+      <state_interface name="position"/>
+    </joint>
+    <joint name="zh3_Joint">
       <command_interface name="position">
         <param name="min">-1.57</param>
         <param name="max">0.7</param>

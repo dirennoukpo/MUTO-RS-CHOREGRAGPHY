@@ -11,19 +11,6 @@ controller_manager:
 leg_controller:
   ros__parameters:
     joints:
-      # ─── LEFT SIDE ───
-      - zq1_Joint # Front Left  - Coxa
-      - zq2_Joint # Front Left  - Femur
-      - zq3_Joint # Front Left  - Tibia
-
-      - zz1_Joint # Mid Left    - Coxa
-      - zz2_Joint # Mid Left    - Femur
-      - zz3_Joint # Mid Left    - Tibia
-
-      - zh1_Joint # Rear Left   - Coxa
-      - zh2_Joint # Rear Left   - Femur
-      - zh3_Joint # Rear Left   - Tibia
-
       # ─── RIGHT SIDE ───
       - yq1_Joint # Front Right - Coxa
       - yq2_Joint # Front Right - Femur
@@ -36,3 +23,16 @@ leg_controller:
       - yh1_Joint # Rear Right  - Coxa
       - yh2_Joint # Rear Right  - Femur
       - yh3_Joint # Rear Right  - Tibia
+
+      # ─── LEFT SIDE ───
+      - zq1_Joint # Front Left  - Coxa
+      - zq2_Joint # Front Left  - Femur
+      - zq3_Joint # Front Left  - Tibia
+
+      - zz1_Joint # Mid Left    - Coxa
+      - zz2_Joint # Mid Left    - Femur
+      - zz3_Joint # Mid Left    - Tibia
+
+      - zh1_Joint # Rear Left   - Coxa
+      - zh2_Joint # Rear Left   - Femur
+      - zh3_Joint # Rear Left   - Tibia
