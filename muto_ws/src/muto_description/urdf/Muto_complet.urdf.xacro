@@ -14,7 +14,7 @@
       <param name="servo_speed">300</param>
       <param name="servo_ids">1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18</param>
       <param name="update_state_from_hardware">false</param>
-      <param name="imu_publish_rate">20.0</param>
+      <param name="imu_publish_rate">25.0</param>
       <param name="imu_frame_id">imu_link</param>
       <param name="torque_enabled">true</param>
     </hardware>
