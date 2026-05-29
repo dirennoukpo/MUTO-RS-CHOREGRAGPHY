@@ -380,8 +380,9 @@
       <geometry><mesh filename="package://muto_description/meshes/yz3_Link.STL" /></geometry>
     </collision>
   </link>
+  <!-- FIX: yz3_Joint origin X was 0.195684337632199 (SolidWorks bug) → corrected to 0.0497740601308618 -->
   <joint name="yz3_Joint" type="revolute">
-    <origin xyz="0.195684337632199 -0.0250512362876254 0.015861531236519" rpy="0 0 0" />
+    <origin xyz="0.0497740601308618 -0.0250512362876254 0.015861531236519" rpy="0 0 0" />
     <parent link="yz2_Link" /><child link="yz3_Link" />
     <axis xyz="0.711636313809377 0.702548045949743 0" />
     <limit lower="-1.57" upper="0.8" effort="4.2" velocity="7.0" />
@@ -429,6 +430,7 @@
       <geometry><mesh filename="package://muto_description/meshes/yh2_Link.STL" /></geometry>
     </collision>
   </link>
+  <!-- FIX: joint name was "yh2_Link" (SolidWorks bug) → corrected to "yh2_Joint" -->
   <joint name="yh2_Joint" type="revolute">
     <origin xyz="-0.055226635669978 -0.0165734288280502 -0.027473927115545" rpy="0 0 0" />
     <parent link="yh1_Link" /><child link="yh2_Link" />
@@ -453,6 +455,7 @@
       <geometry><mesh filename="package://muto_description/meshes/yh3_Link.STL" /></geometry>
     </collision>
   </link>
+  <!-- FIX: joint name was "yh3_Link" (SolidWorks bug) → corrected to "yh3_Joint" -->
   <joint name="yh3_Joint" type="revolute">
     <origin xyz="-0.0497740601308654 -0.0504179449064808 0.0158615312365509" rpy="0 0 0" />
     <parent link="yh2_Link" /><child link="yh3_Link" />
