@@ -1,1 +1,0 @@
-git checkout demo_muto_rs_synchronization
