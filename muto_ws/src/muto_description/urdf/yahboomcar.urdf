@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/base_link.STL" />
+          filename="package://yahboomcar_description/meshes/base_link.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/base_link.STL" />
+          filename="package://yahboomcar_description/meshes/base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -67,7 +67,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -81,7 +81,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -125,7 +125,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -139,7 +139,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -183,7 +183,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -197,7 +197,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zq3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zq3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -242,7 +242,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -256,7 +256,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -300,7 +300,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -314,7 +314,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -358,7 +358,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -372,7 +372,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zz3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zz3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -417,7 +417,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -431,7 +431,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -475,7 +475,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -489,7 +489,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -533,7 +533,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -547,7 +547,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/zh3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/zh3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -592,7 +592,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -606,7 +606,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -650,7 +650,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -664,7 +664,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -708,7 +708,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -722,7 +722,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yq3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yq3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -767,7 +767,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -781,7 +781,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -825,7 +825,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -839,7 +839,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -883,7 +883,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -897,7 +897,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yz3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yz3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -938,7 +938,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh1_Link.STL" />
       </geometry>
       <material
         name="">
@@ -952,7 +952,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh1_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh1_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -996,7 +996,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh2_Link.STL" />
       </geometry>
       <material
         name="">
@@ -1010,7 +1010,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh2_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh2_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1054,7 +1054,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh3_Link.STL" />
       </geometry>
       <material
         name="">
@@ -1068,7 +1068,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/yh3_Link.STL" />
+          filename="package://yahboomcar_description/meshes/yh3_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1113,7 +1113,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/imu_Link.STL" />
+          filename="package://yahboomcar_description/meshes/imu_Link.STL" />
       </geometry>
       <material
         name="">
@@ -1127,7 +1127,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/imu_Link.STL" />
+          filename="package://yahboomcar_description/meshes/imu_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1166,7 +1166,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/camera_Link.STL" />
+          filename="package://yahboomcar_description/meshes/camera_Link.STL" />
       </geometry>
       <material
         name="">
@@ -1180,7 +1180,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/camera_Link.STL" />
+          filename="package://yahboomcar_description/meshes/camera_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1219,7 +1219,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/LD_Link.STL" />
+          filename="package://yahboomcar_description/meshes/LD_Link.STL" />
       </geometry>
       <material
         name="">
@@ -1233,7 +1233,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://muto_description/meshes/LD_Link.STL" />
+          filename="package://yahboomcar_description/meshes/LD_Link.STL" />
       </geometry>
     </collision>
   </link>
